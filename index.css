@@ -125,6 +125,7 @@ h1 {
   padding: 12px 20px;
   background: rgba(10, 15, 29, 0.4);
   border-bottom: 1px solid var(--border-glass);
+  transition: all 0.3s ease;
 }
 
 .stat-card {
@@ -160,6 +161,48 @@ h1 {
 .stat-value.highlight-cyan { color: var(--color-primary); text-shadow: var(--glow-cyan); }
 .stat-value.highlight-green { color: var(--color-success); text-shadow: var(--glow-success); }
 .stat-value.highlight-purple { color: #d05eff; }
+
+/* Mobile Map & Stats Toggle Strip */
+.map-toggle-strip {
+  display: none;
+  background: rgba(10, 15, 29, 0.75);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-glass);
+  padding: 4px 15px;
+  justify-content: center;
+  align-items: center;
+  z-index: 6;
+}
+
+.btn-toggle-strip {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  color: var(--text-muted);
+  font-family: var(--font-family);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 4px 14px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-toggle-strip:hover,
+.btn-toggle-strip:active {
+  background: rgba(0, 240, 255, 0.1);
+  color: #fff;
+  border-color: rgba(0, 240, 255, 0.4);
+}
+
+.btn-map-toggle.active {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.25);
+}
 
 /* Main Section with Sidebar and Map */
 .main-layout {
@@ -919,6 +962,11 @@ dialog::backdrop {
     font-size: 1.1rem;
   }
 
+  .map-toggle-strip {
+    display: flex;
+    flex-shrink: 0;
+  }
+
   .main-layout {
     flex-direction: column-reverse;
     flex: 1;
@@ -938,6 +986,49 @@ dialog::backdrop {
     height: 35vh;
     min-height: 160px;
     flex-shrink: 0;
+  }
+
+  /* Compact / Collapsed Top View on Mobile */
+  .app-container.top-collapsed .map-container {
+    display: none !important;
+  }
+
+  .app-container.top-collapsed .stats-panel {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: center;
+    padding: 6px 12px;
+    gap: 6px;
+    background: rgba(10, 15, 29, 0.6);
+  }
+
+  .app-container.top-collapsed .stat-card {
+    padding: 4px 8px;
+    background: rgba(18, 26, 47, 0.6);
+    border-radius: 6px;
+    flex: 1;
+    text-align: center;
+    min-width: 0;
+  }
+
+  .app-container.top-collapsed .stat-label {
+    font-size: 0.58rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .app-container.top-collapsed .stat-value {
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .app-container.top-collapsed .sidebar {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    border-top: none;
   }
 }
 
@@ -983,6 +1074,23 @@ dialog::backdrop {
   .header-actions .btn {
     padding: 8px;
     border-radius: 50%;
+  }
+
+  .app-container.top-collapsed .stats-panel {
+    padding: 4px 8px;
+    gap: 4px;
+  }
+
+  .app-container.top-collapsed .stat-card {
+    padding: 2px 4px;
+  }
+
+  .app-container.top-collapsed .stat-label {
+    font-size: 0.52rem;
+  }
+
+  .app-container.top-collapsed .stat-value {
+    font-size: 0.76rem;
   }
   
   dialog {

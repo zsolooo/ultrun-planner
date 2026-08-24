@@ -114,6 +114,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     initMap();
     initTabEvents();
+    initMobileCollapseEvents();
     initFormEvents();
     initDataEvents();
     
@@ -183,6 +184,70 @@ function initTabEvents() {
       }
     });
   });
+}
+
+// Mobile Top Area (Map & Stats) Collapse Toggle
+function initMobileCollapseEvents() {
+  const appContainer = document.querySelector('.app-container');
+  const btnToggleMap = document.getElementById('btn-toggle-map');
+  const btnToggleStrip = document.getElementById('btn-toggle-top-collapse');
+  const stripText = document.querySelector('.toggle-strip-text');
+  const headerMapText = document.querySelector('.btn-map-toggle-text');
+  const iconCollapse = document.querySelector('.icon-collapse-strip');
+  const iconExpand = document.querySelector('.icon-expand-strip');
+
+  function updateCollapseUI(isCollapsed) {
+    if (isCollapsed) {
+      appContainer.classList.add('top-collapsed');
+      if (stripText) stripText.textContent = 'Show Map & Full Stats';
+      if (headerMapText) headerMapText.textContent = 'Show Map';
+      if (iconCollapse) iconCollapse.style.display = 'none';
+      if (iconExpand) iconExpand.style.display = 'inline-block';
+      if (btnToggleMap) btnToggleMap.classList.add('active');
+    } else {
+      appContainer.classList.remove('top-collapsed');
+      if (stripText) stripText.textContent = 'Hide Map & Compact Stats';
+      if (headerMapText) headerMapText.textContent = 'Hide Map';
+      if (iconCollapse) iconCollapse.style.display = 'inline-block';
+      if (iconExpand) iconExpand.style.display = 'none';
+      if (btnToggleMap) btnToggleMap.classList.remove('active');
+      
+      // Force leaflet map redraw after expand animation/display
+      setTimeout(() => {
+        if (state.map) {
+          state.map.invalidateSize();
+        }
+      }, 200);
+    }
+  }
+
+  function toggleCollapse() {
+    const isCurrentlyCollapsed = appContainer.classList.contains('top-collapsed');
+    const newState = !isCurrentlyCollapsed;
+    updateCollapseUI(newState);
+    try {
+      localStorage.setItem('ub_mobile_top_collapsed', newState ? 'true' : 'false');
+    } catch (e) {
+      console.warn('Could not save collapsed state preference:', e);
+    }
+  }
+
+  if (btnToggleMap) {
+    btnToggleMap.addEventListener('click', toggleCollapse);
+  }
+  if (btnToggleStrip) {
+    btnToggleStrip.addEventListener('click', toggleCollapse);
+  }
+
+  // Restore saved preference if on small screens
+  try {
+    const saved = localStorage.getItem('ub_mobile_top_collapsed');
+    if (saved === 'true') {
+      updateCollapseUI(true);
+    }
+  } catch (e) {
+    // Ignore storage access errors
+  }
 }
 
 // Add/Edit Runner Dialog Event Handlers
