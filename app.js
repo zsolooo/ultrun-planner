@@ -570,8 +570,9 @@ async function loadStateFromDB() {
 
 // Pacing & Time Formatting Helpers
 function formatDuration(totalSeconds) {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
+  const totalSec = Math.round(totalSeconds || 0);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   return `${h}h ${m}m`;
 }
 
@@ -584,8 +585,10 @@ function formatTime(date) {
 }
 
 function formatPace(paceSeconds) {
-  const min = Math.floor(paceSeconds / 60);
-  const sec = String(paceSeconds % 60).padStart(2, '0');
+  if (!paceSeconds || isNaN(paceSeconds) || paceSeconds <= 0) return '0:00';
+  const totalSec = Math.round(paceSeconds);
+  const min = Math.floor(totalSec / 60);
+  const sec = String(totalSec % 60).padStart(2, '0');
   return `${min}:${sec}`;
 }
 
