@@ -1181,8 +1181,8 @@ function drawRouteOnMap() {
     const timeWindowStr = `${formatTime(segment.startTime)} – ${formatTime(segment.endTime)}`;
 
     const tooltipHtml = `
-      <div style="line-height: 1.45; min-width: 190px; max-width: 270px;">
-        <div style="font-size: 0.9rem; font-weight: 700; color: #fff; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 4px;">
+      <div style="line-height: 1.45; min-width: 180px; max-width: 280px; white-space: normal; word-break: break-word; overflow-wrap: break-word;">
+        <div style="font-size: 0.9rem; font-weight: 700; color: #fff; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 4px; line-height: 1.35; white-space: normal; word-break: break-word; overflow-wrap: break-word;">
           ${segment.name}
         </div>
         <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 4px; display: flex; justify-content: space-between; gap: 10px;">
