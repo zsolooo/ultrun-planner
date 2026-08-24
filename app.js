@@ -1169,9 +1169,47 @@ function drawRouteOnMap() {
       lineJoin: 'round'
     }).addTo(state.map);
     
-    // Bind segment hover popup events
-    polyline.on('mouseover', (e) => {
-      polyline.setStyle({ weight: polylineWeight + 3 });
+    const runnerBadge = runner
+      ? `<span style="display: inline-flex; align-items: center; gap: 5px;">
+           <span style="display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: ${runner.color}; box-shadow: 0 0 6px ${runner.color};"></span>
+           <strong style="color: ${runner.color}; font-weight: 600;">${runner.name}</strong>
+           <span style="color: #94a3b8; font-size: 0.75rem;">(${formatPace(runner.paceSeconds)}/km)</span>
+         </span>`
+      : `<span style="color: var(--color-warning); font-style: italic;">Unassigned (5:30/km fallback)</span>`;
+
+    const durationStr = formatDuration(segment.durationSeconds);
+    const timeWindowStr = `${formatTime(segment.startTime)} – ${formatTime(segment.endTime)}`;
+
+    const tooltipHtml = `
+      <div style="line-height: 1.45; min-width: 190px; max-width: 270px;">
+        <div style="font-size: 0.9rem; font-weight: 700; color: #fff; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 4px;">
+          ${segment.name}
+        </div>
+        <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 4px; display: flex; justify-content: space-between; gap: 10px;">
+          <span>📏 <strong>${segment.distance.toFixed(1)} km</strong></span>
+          <span>⛰️ +${Math.round(segment.eleGain)}m / -${Math.round(segment.eleLoss)}m</span>
+        </div>
+        <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 5px;">
+          🏃 ${runnerBadge}
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 4px;">
+          <span>⏱️ ${timeWindowStr}</span>
+          <span style="color: #c084fc; font-weight: 600;">${durationStr}</span>
+        </div>
+      </div>
+    `;
+
+    // Bind sticky hover tooltip with rich segment and runner details
+    polyline.bindTooltip(tooltipHtml, {
+      sticky: true,
+      className: 'dark-route-tooltip',
+      direction: 'top',
+      opacity: 1
+    });
+
+    // Hover style effects and bottom-right overlay updates
+    polyline.on('mouseover', () => {
+      polyline.setStyle({ weight: polylineWeight + 3, opacity: 1 });
       
       // Update details overlay widget
       mapOverlaySegmentName.textContent = segment.name;
@@ -1181,20 +1219,10 @@ function drawRouteOnMap() {
       
       mapOverlayEta.textContent = `${formatTime(segment.startTime)} - ${formatTime(segment.endTime)}`;
       mapOverlay.style.display = 'flex';
-      
-      // Floating detail element
-      L.popup({ closeButton: false, autoPan: false })
-        .setLatLng(e.latlng)
-        .setContent(`<div style="font-family: Outfit; font-size: 0.8rem; font-weight: 500; color: #fff; padding: 2px;">
-          <strong>${segment.name}</strong><br>
-          ${segment.distance.toFixed(1)} km | ${runner ? runner.name : 'Unassigned'}
-        </div>`)
-        .openOn(state.map);
     });
     
     polyline.on('mouseout', () => {
-      polyline.setStyle({ weight: polylineWeight });
-      state.map.closePopup();
+      polyline.setStyle({ weight: polylineWeight, opacity: polylineOpacity });
     });
     
     state.mapLayers.routePolylines.push(polyline);
@@ -1202,7 +1230,7 @@ function drawRouteOnMap() {
   
   // 4. Draw markers for all waypoints
   // To keep map clutter-free, we render:
-  // - Large colored pins for ACTIVE transition points
+  // - Large colored pins for ACTIVE transition points (labels appear on hover)
   // - Small gray circles for INACTIVE waypoints, which can be clicked to activate
   
   // Plot Inactive waypoints
@@ -1218,13 +1246,18 @@ function drawRouteOnMap() {
       fillOpacity: 0.6
     }).addTo(state.map);
     
+    circle.bindTooltip(`<strong>${wpt.name}</strong><br><span style="font-size: 0.75rem; color: #94a3b8;">Click to activate</span>`, {
+      className: 'dark-route-tooltip',
+      direction: 'top'
+    });
+    
     // Bind popup for inactive waypoint to allow activating it
     circle.bindPopup(`
-      <div style="font-family: Outfit; font-size: 0.85rem; color: #000; padding: 5px;">
-        <strong style="font-size: 0.9rem;">${wpt.name}</strong><br>
-        <span style="color: #666; font-size: 0.75rem;">${(wpt.trackIndex / state.trackPoints.length * 211).toFixed(1)} km along route</span><br>
-        <p style="margin: 8px 0 0 0; font-size: 0.8rem; font-style: italic; color: #666;">${wpt.desc || 'No description'}</p>
-        <button id="pop-btn-activate-${wpt.id}" style="margin-top: 10px; width: 100%; border: 1px solid #00f0ff; background: #00f0ff; color: #000; padding: 4px 8px; border-radius: 4px; font-weight: 600; cursor: pointer;">
+      <div style="font-family: var(--font-family); font-size: 0.85rem; color: #f1f5f9; min-width: 180px;">
+        <strong style="font-size: 0.95rem; color: #fff;">${wpt.name}</strong><br>
+        <span style="color: var(--text-muted); font-size: 0.75rem;">${(wpt.trackIndex / state.trackPoints.length * 211).toFixed(1)} km along route</span><br>
+        <p style="margin: 8px 0 0 0; font-size: 0.8rem; font-style: italic; color: #94a3b8;">${wpt.desc || 'No description'}</p>
+        <button id="pop-btn-activate-${wpt.id}" class="btn btn-primary btn-small" style="margin-top: 10px; width: 100%;">
           Activate Transition Point
         </button>
       </div>
@@ -1250,7 +1283,7 @@ function drawRouteOnMap() {
     state.mapLayers.markers.push(circle);
   });
   
-  // Plot Active waypoints (with custom divIcon pins)
+  // Plot Active waypoints (with custom divIcon pins and hover labels)
   state.activeTransitions.forEach((wpt, idx) => {
     // Find runner assigned to the segment starting at this point
     // The start of segment idx corresponds to activeTransition idx
@@ -1263,7 +1296,7 @@ function drawRouteOnMap() {
       className: 'custom-div-icon',
       html: `
         <div class="marker-pin ${runner ? '' : 'inactive'}" style="${runner ? `--color-primary: ${runnerColor}` : ''}"></div>
-        <div class="marker-label">${wpt.name.split(',')[0].substring(0, 15)}</div>
+        <div class="marker-label">${wpt.name.split(',')[0].trim()}</div>
       `,
       iconSize: [30, 42],
       iconAnchor: [15, 42]
@@ -1273,20 +1306,22 @@ function drawRouteOnMap() {
     
     // Popup for active waypoint
     const segmentText = segment ? `
-      <strong style="color: #666;">Next Segment:</strong> ${segment.name}<br>
-      <strong style="color: #666;">Dist:</strong> ${segment.distance.toFixed(1)} km<br>
-      <strong style="color: #666;">Assigned:</strong> ${runner ? runner.name : '<span style="color: orange;">Unassigned</span>'}<br>
-      <strong style="color: #666;">Departure ETA:</strong> ${formatTime(segment.startTime)}
-    ` : 'Finish Line';
+      <div style="margin-top: 6px; font-size: 0.8rem; line-height: 1.45;">
+        <div style="color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase;">Next Segment</div>
+        <div style="font-weight: 600; color: #fff;">${segment.name} (${segment.distance.toFixed(1)} km)</div>
+        <div style="margin-top: 3px;">🏃 <strong>${runner ? runner.name : '<span style="color: var(--color-warning);">Unassigned</span>'}</strong></div>
+        <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 2px;">Departure: <span style="color: var(--color-success); font-weight: 600;">${formatTime(segment.startTime)}</span></div>
+      </div>
+    ` : '<div style="color: var(--color-success); font-weight: 600; margin-top: 5px;">🏁 Finish Line</div>';
     
     marker.bindPopup(`
-      <div style="font-family: Outfit; font-size: 0.85rem; color: #000; padding: 5px; min-width: 180px;">
-        <strong style="font-size: 0.95rem; color: #000;">${wpt.name}</strong><br>
-        <span style="color: #888; font-size: 0.75rem;">Transition point #${idx + 1} | ${(wpt.trackIndex / state.trackPoints.length * 211).toFixed(1)} km</span><br>
-        <hr style="margin: 8px 0; border: none; border-top: 1px solid #ddd;">
-        ${segmentText}<br>
+      <div style="font-family: var(--font-family); font-size: 0.85rem; color: #f1f5f9; min-width: 190px;">
+        <strong style="font-size: 0.95rem; color: var(--color-primary);">${wpt.name}</strong><br>
+        <span style="color: var(--text-muted); font-size: 0.75rem;">Transition #${idx + 1} | ${(wpt.trackIndex / state.trackPoints.length * 211).toFixed(1)} km along route</span>
+        <hr style="margin: 6px 0; border: none; border-top: 1px solid rgba(255,255,255,0.1);">
+        ${segmentText}
         ${(idx > 0 && idx < state.activeTransitions.length - 1) ? `
-          <button id="pop-btn-deactivate-${wpt.id}" style="margin-top: 12px; width: 100%; border: 1px solid #ff0055; background: none; color: #ff0055; padding: 4px 8px; border-radius: 4px; font-weight: 500; cursor: pointer;">
+          <button id="pop-btn-deactivate-${wpt.id}" class="btn btn-danger btn-small" style="margin-top: 10px; width: 100%;">
             Deactivate Transition
           </button>
         ` : ''}

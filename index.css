@@ -868,6 +868,14 @@ dialog::backdrop {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+  cursor: pointer;
+}
+
+.custom-div-icon:hover .marker-pin {
+  transform: rotate(-45deg) scale(1.18);
+  box-shadow: 0 0 16px var(--color-primary), 0 4px 10px rgba(0, 0, 0, 0.6);
+  z-index: 1000;
 }
 
 .marker-pin::after {
@@ -884,18 +892,87 @@ dialog::backdrop {
 
 .marker-label {
   position: absolute;
-  bottom: 24px;
+  bottom: 28px;
   left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-dark);
-  border: 1px solid var(--border-glass);
+  transform: translateX(-50%) translateY(6px);
+  background: rgba(10, 15, 29, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-glass-focus);
   color: #fff;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-family: var(--font-family);
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7), var(--glow-cyan);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.2s ease;
+  z-index: 999;
+}
+
+/* Show transition point name only when hovering the marker pin */
+.custom-div-icon:hover .marker-label {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+  z-index: 1001;
+}
+
+/* Dark Theme for Leaflet Popups and Tooltips */
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: rgba(10, 15, 29, 0.96) !important;
+  color: var(--text-main) !important;
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border-glass-focus);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.75), var(--glow-cyan) !important;
+  border-radius: 12px !important;
+}
+
+.leaflet-popup-content {
+  margin: 12px 14px !important;
+  line-height: 1.5;
+  color: var(--text-main) !important;
+  font-family: var(--font-family) !important;
+}
+
+.leaflet-popup-close-button {
+  color: var(--text-muted) !important;
+  padding: 6px 8px !important;
+}
+
+.leaflet-popup-close-button:hover {
+  color: #fff !important;
+}
+
+/* Custom Route Hover Tooltip */
+.dark-route-tooltip {
+  background: rgba(10, 15, 29, 0.96) !important;
+  border: 1px solid rgba(0, 240, 255, 0.45) !important;
+  border-radius: 8px !important;
+  padding: 8px 12px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7), 0 0 14px rgba(0, 240, 255, 0.3) !important;
+  color: #fff !important;
+  font-family: var(--font-family) !important;
+  font-size: 0.85rem !important;
+  backdrop-filter: blur(10px) !important;
+  pointer-events: none;
+}
+
+.dark-route-tooltip.leaflet-tooltip-top::before {
+  border-top-color: rgba(0, 240, 255, 0.45) !important;
+}
+.dark-route-tooltip.leaflet-tooltip-bottom::before {
+  border-bottom-color: rgba(0, 240, 255, 0.45) !important;
+}
+.dark-route-tooltip.leaflet-tooltip-left::before {
+  border-left-color: rgba(0, 240, 255, 0.45) !important;
+}
+.dark-route-tooltip.leaflet-tooltip-right::before {
+  border-right-color: rgba(0, 240, 255, 0.45) !important;
 }
 
 /* Loading Overlay */
