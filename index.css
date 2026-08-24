@@ -197,11 +197,11 @@ h1 {
   border-color: rgba(0, 240, 255, 0.4);
 }
 
-.btn-map-toggle {
+.btn.btn-map-toggle {
   display: none;
 }
 
-.btn-map-toggle.active {
+.btn.btn-map-toggle.active {
   background: rgba(0, 240, 255, 0.15);
   border-color: var(--color-primary);
   color: var(--color-primary);
@@ -966,7 +966,7 @@ dialog::backdrop {
     font-size: 1.1rem;
   }
 
-  .btn-map-toggle {
+  .btn.btn-map-toggle {
     display: inline-flex;
   }
 
