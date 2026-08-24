@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Ultrabalaton Team Schedule Planner</title>
+  
+  <!-- SEO & Icons -->
+  <meta name="description" content="Plan and optimize your Ultrabalaton team running schedule offline. Map segments, calculate pacing, assign runners, and export smartwatch-compatible GPX files.">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0a0f1d">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  
+  <!-- Styles -->
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+
+  <!-- Loading Screen -->
+  <div id="loading-overlay" class="loading-overlay">
+    <div class="spinner"></div>
+    <div class="loading-text">LOADING PLANNER...</div>
+  </div>
+
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header>
+      <div class="logo-container">
+        <div class="logo-icon">UB</div>
+        <h1>Ultrabalaton Team Planner</h1>
+      </div>
+      <div class="header-actions">
+        <button id="btn-load-default" class="btn" title="Load default route GPX file">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+            <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+          </svg>
+          <span>Load Route</span>
+        </button>
+        <button id="btn-import-data" class="btn" title="Import schedule backup JSON">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+            <path fill-rule="evenodd" d="M15.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z"/>
+          </svg>
+          <span>Import Data</span>
+        </button>
+        <button id="btn-export-data" class="btn btn-primary" title="Export schedule backup JSON">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M12.854 4.854a.5.5 0 1 0-.708-.708L9 7.293V1.5a.5.5 0 0 0-1 0v5.793L5.854 4.146a.5.5 0 1 0-.708.708l3 3a.5.5 0 0 0 .708 0l3-3z"/>
+            <path d="M3.5 9v3a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V9a.5.5 0 0 1 1 0v3a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V9a.5.5 0 0 1 1 0z"/>
+          </svg>
+          <span>Export Data</span>
+        </button>
+        <!-- Hidden file inputs for loaders -->
+        <input type="file" id="route-file-input" accept=".gpx" style="display: none;">
+        <input type="file" id="backup-file-input" accept=".json" style="display: none;">
+      </div>
+    </header>
+
+    <!-- Global Team Statistics Panel -->
+    <section class="stats-panel">
+      <div class="stat-card">
+        <span class="stat-label">Total Route Distance</span>
+        <span id="stat-distance" class="stat-value highlight-cyan">0.0 km</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Planned Team Duration</span>
+        <span id="stat-duration" class="stat-value highlight-purple">--h --m</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Estimated Finish ETA</span>
+        <span id="stat-finish-eta" class="stat-value highlight-green">--:--</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Team Average Pace</span>
+        <span id="stat-avg-pace" class="stat-value">--:-- min/km</span>
+      </div>
+    </section>
+
+    <!-- Main Content Layout -->
+    <main class="main-layout">
+      
+      <!-- Left Control Panel (Sidebar) -->
+      <section class="sidebar">
+        <nav class="tab-nav">
+          <button class="tab-btn active" data-tab="tab-map">
+            <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10zm0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>
+            </svg>
+            Overview
+          </button>
+          <button class="tab-btn" data-tab="tab-runners">
+            <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M7 14s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H7zm4-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM5.216 14A2.238 2.238 0 0 1 5 13c0-1.355.68-2.75 1.936-3.72A6.325 6.325 0 0 0 5 9c-4 0-5 3-5 4s1 1 1 1h4.216zM4.5 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/>
+            </svg>
+            Runners
+          </button>
+          <button class="tab-btn" data-tab="tab-schedule">
+            <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M11 6.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1z"/>
+              <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/>
+            </svg>
+            Planning
+          </button>
+          <button class="tab-btn" data-tab="tab-settings">
+            <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z"/>
+            </svg>
+            Settings
+          </button>
+        </nav>
+
+        <!-- Tab: Map Overview -->
+        <div id="tab-map" class="tab-content active">
+          <div class="section-header">
+            <h2 class="section-title">Schedule Summary</h2>
+          </div>
+          <p class="settings-help">Use the planning and runners tab to assign running segments. Here you can download custom GPX smartwatch tracks for each runner's combined segments.</p>
+          
+          <div id="overview-runners-runs" style="display: flex; flex-direction: column; gap: 15px; margin-top: 10px;">
+            <!-- Dynamic list of runners and their individual runs for GPX export -->
+            <p id="no-runs-placeholder" style="color: var(--text-muted); font-size: 0.9rem; font-style: italic; text-align: center; padding: 20px;">
+              No segments assigned yet. Go to the "Planning" tab to assign segments to runners.
+            </p>
+          </div>
+        </div>
+
+        <!-- Tab: Runners -->
+        <div id="tab-runners" class="tab-content">
+          <div class="section-header">
+            <h2 class="section-title">Team Runners</h2>
+            <button id="btn-add-runner" class="btn btn-success btn-small">
+              <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/>
+              </svg>
+              Add Runner
+            </button>
+          </div>
+          
+          <div id="runners-list-container" class="runners-list">
+            <!-- Dynamic runner cards will go here -->
+          </div>
+        </div>
+
+        <!-- Tab: Schedule (Planning) -->
+        <div id="tab-schedule" class="tab-content">
+          <div class="section-header">
+            <h2 class="section-title">Route Segments</h2>
+          </div>
+          <p class="settings-help">Route is divided into segments between active transition points. Drop down to assign runners.</p>
+          
+          <div id="segments-list-container" class="schedule-list">
+            <!-- Dynamic segments will go here -->
+            <p id="no-route-placeholder" style="color: var(--text-muted); font-size: 0.9rem; font-style: italic; text-align: center; padding: 20px;">
+              Please load a GPX route first using the "Load Route" button.
+            </p>
+          </div>
+        </div>
+
+        <!-- Tab: Settings -->
+        <div id="tab-settings" class="tab-content">
+          <div class="section-header">
+            <h2 class="section-title">Configuration</h2>
+          </div>
+          
+          <div class="settings-section">
+            <div class="settings-section-title">Race Settings</div>
+            <div class="form-group">
+              <label for="input-start-time">Team Start Date & Time</label>
+              <input type="datetime-local" id="input-start-time" value="2026-05-16T08:00">
+            </div>
+            <button id="btn-save-settings" class="btn btn-primary btn-full">Save Race Settings</button>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Filter Transition Points (POIs)</div>
+            <p class="settings-help">Select which waypoints from the GPX should act as active team transition points. Re-mapping is done automatically.</p>
+            <div id="waypoint-filters-container" style="display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto; padding-right: 5px;">
+              <!-- Dynamic checkboxes will go here -->
+            </div>
+          </div>
+          
+          <div class="settings-section" style="margin-top: 10px;">
+            <div class="settings-section-title">PWA Application</div>
+            <button id="btn-install-pwa" class="btn btn-full" style="display: none;">Install Offline App</button>
+            <button id="btn-clear-db" class="btn btn-danger btn-full btn-small">Reset App Database</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Panel: Leaflet Map -->
+      <section class="map-container dark-map">
+        <div id="map"></div>
+        
+        <!-- Hover Segment Details Overlay -->
+        <div id="map-overlay" class="map-overlay" style="display: none;">
+          <div class="map-overlay-title">ACTIVE TRACK SEGMENT</div>
+          <div class="map-overlay-content">
+            <div id="map-overlay-segment-name" style="font-weight: 600;">Segment Name</div>
+            <div id="map-overlay-segment-details" style="font-size: 0.85rem; color: var(--text-muted);">0.0 km | +0m / -0m</div>
+          </div>
+          <div class="map-overlay-content" style="margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 5px;">
+            <div class="map-overlay-runner">
+              <div id="map-overlay-runner-color" class="map-overlay-color"></div>
+              <span id="map-overlay-runner-name">Unassigned</span>
+            </div>
+            <div id="map-overlay-eta" class="eta-value" style="font-size: 0.9rem;">--:-- - --:--</div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Dialog: Add/Edit Runner -->
+  <dialog id="dialog-runner">
+    <div class="dialog-header">
+      <h3 id="dialog-runner-title" class="dialog-title">Add Runner</h3>
+      <button id="btn-close-dialog" class="btn btn-icon btn-small" style="border: none; background: none;">
+        <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+        </svg>
+      </button>
+    </div>
+    <form id="form-runner" method="dialog">
+      <input type="hidden" id="input-runner-id">
+      
+      <div class="form-group">
+        <label for="input-runner-name">Name</label>
+        <input type="text" id="input-runner-name" placeholder="e.g. Alice" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="input-runner-pace-min">Planned Average Pace (min/km)</label>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <input type="number" id="input-runner-pace-min" min="2" max="15" value="5" style="flex: 1; text-align: center;">
+          <span>:</span>
+          <input type="number" id="input-runner-pace-sec" min="0" max="59" value="30" style="flex: 1; text-align: center;">
+          <span style="color: var(--text-muted);">/km</span>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label for="input-runner-dist">Preferred Cumulative Distance (km)</label>
+        <input type="number" id="input-runner-dist" min="1" max="100" value="25" step="0.5">
+      </div>
+      
+      <div class="form-group">
+        <label for="input-runner-runs">Preferred Max Number of Runs</label>
+        <input type="number" id="input-runner-runs" min="1" max="10" value="2" step="1">
+      </div>
+      
+      <div class="form-group">
+        <label for="select-runner-color">Map/UI Color theme</label>
+        <select id="select-runner-color" style="width: 100%;">
+          <option value="#00f0ff" style="color: #00f0ff; background: #0f1424;">Electric Cyan</option>
+          <option value="#39ff14" style="color: #39ff14; background: #0f1424;">Lime Green</option>
+          <option value="#ff00ff" style="color: #ff00ff; background: #0f1424;">Neon Magenta</option>
+          <option value="#ffeb3b" style="color: #ffeb3b; background: #0f1424;">Bright Yellow</option>
+          <option value="#bd00ff" style="color: #bd00ff; background: #0f1424;">Neon Violet</option>
+          <option value="#ff7300" style="color: #ff7300; background: #0f1424;">Sporty Orange</option>
+          <option value="#ff2a85" style="color: #ff2a85; background: #0f1424;">Hot Pink</option>
+          <option value="#0088ff" style="color: #0088ff; background: #0f1424;">Azure Blue</option>
+        </select>
+      </div>
+      
+      <div class="dialog-actions">
+        <button type="button" id="btn-cancel-dialog" class="btn">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Runner</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <!-- Main Application Script -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

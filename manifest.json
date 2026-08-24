@@ -1,0 +1,22 @@
+{
+  "short_name": "UB Planner",
+  "name": "Ultrabalaton Team Schedule Planner",
+  "description": "Plan your Ultrabalaton team running schedule, calculate paces, coordinate transitions, and export smartwatch tracks offline.",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "background_color": "#0a0f1d",
+  "theme_color": "#0a0f1d",
+  "display": "standalone",
+  "orientation": "any"
+}
