@@ -13409,7 +13409,8 @@ var WebrtcProvider = class extends ObservableV2 {
 };
 export {
   WebrtcProvider,
-  yjs_exports as Y
+  yjs_exports as Y,
+  rooms
 };
 /*! Bundled license information:
 

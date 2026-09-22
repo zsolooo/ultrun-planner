@@ -3,7 +3,7 @@
  * Powered by Yjs CRDT + y-webrtc for zero-backend, multi-user real-time synchronization.
  */
 
-import { Y, WebrtcProvider } from './webrtc-vendor.js';
+import { Y, WebrtcProvider, rooms } from './webrtc-vendor.js';
 
 class CollaborationEngine {
   constructor() {
@@ -28,11 +28,9 @@ class CollaborationEngine {
       peers: []
     };
 
-    // Signaling server endpoints for WebRTC handshake
+    // Live public signaling server endpoints for WebRTC handshake
     this.signalingServers = [
-      'wss://signaling.yjs.dev',
-      'wss://y-webrtc-signaling-eu.herokuapp.com',
-      'wss://y-webrtc-signaling-us.herokuapp.com'
+      'wss://y-webrtc-eu.fly.dev'
     ];
 
     // Local peer identifier info
@@ -188,8 +186,8 @@ class CollaborationEngine {
     });
 
     this.provider.on('status', (event) => {
-      console.log('[WebRTC status]', event.status);
-      if (event.status === 'connected' && this.status !== 'connected') {
+      console.log('[WebRTC status]', event.connected ? 'connected' : 'disconnected');
+      if (event.connected && this.status !== 'connected') {
         this.notifyStatus('connected');
       }
     });
@@ -222,17 +220,19 @@ class CollaborationEngine {
     this.yAssignments.observe(handleChange);
     this.ySettings.observe(handleChange);
 
-    // Timeout safety fallback: mark connected even if WebSocket signaling is slow / blocked
-    const connectionTimeoutId = setTimeout(() => {
+    // Timeout safety fallback: mark connected even if remote peers have not joined yet
+    this.connectionTimeoutId = setTimeout(() => {
       if (this.provider && this.status === 'connecting') {
-        console.log('[Collaboration] Signaling timeout – marking as connected (BroadcastChannel may still work locally).');
+        console.log('[Collaboration] Room ready – marking as connected.');
         this.notifyStatus('connected');
         this.handleInitialSync(initialLocalState);
       }
-    }, 3000);
+    }, 2000);
 
-    // Cancel the fallback if we connect before the timeout
-    this.provider.once('status', () => clearTimeout(connectionTimeoutId));
+    // Cancel fallback timeout if synced or connected earlier
+    this.provider.once('synced', () => {
+      if (this.connectionTimeoutId) clearTimeout(this.connectionTimeoutId);
+    });
   }
 
   handleInitialSync(initialLocalState) {
@@ -387,9 +387,19 @@ class CollaborationEngine {
    * Internal: destroy provider and ydoc without updating disconnectedByUser flag.
    */
   _destroyProvider() {
+    if (this.connectionTimeoutId) {
+      clearTimeout(this.connectionTimeoutId);
+      this.connectionTimeoutId = null;
+    }
     if (this.provider) {
       try { this.provider.destroy(); } catch (e) { console.warn('Error destroying provider:', e); }
       this.provider = null;
+    }
+    // Clean up room registry synchronously
+    if (this.roomName) {
+      try {
+        rooms.delete(`ub-planner-${this.roomName}`);
+      } catch (e) {}
     }
     if (this.ydoc) {
       try { this.ydoc.destroy(); } catch (e) { console.warn('Error destroying ydoc:', e); }

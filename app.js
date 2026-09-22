@@ -489,6 +489,10 @@ function initCollaborationEvents() {
     }
   }
 
+  const connectingSection = document.getElementById('collab-connecting-section');
+  const connectingText = document.getElementById('collab-connecting-text');
+  const btnCancel = document.getElementById('btn-collab-cancel');
+
   // Update Status UI
   function updateStatusUI({ status, roomName, peerCount, peers }) {
     if (status === 'connected') {
@@ -498,6 +502,11 @@ function initCollaborationEvents() {
       if (collabBtnLabel) collabBtnLabel.textContent = countLabel;
       btnCollab.title = `Room: ${roomName} (${peerCount} teammate${peerCount > 1 ? 's' : ''} in room)`;
 
+      if (connectingSection) connectingSection.style.display = 'none';
+      if (btnJoin) {
+        btnJoin.disabled = false;
+        btnJoin.textContent = 'Joined';
+      }
       if (activeSection) activeSection.style.display = 'block';
       if (statusText) statusText.textContent = `Connected to room "${roomName}"`;
       if (peerCountText) peerCountText.textContent = peerCount;
@@ -507,12 +516,17 @@ function initCollaborationEvents() {
       if (inputShareUrl) inputShareUrl.value = shareUrl;
       renderCollabQRCode(shareUrl);
     } else if (status === 'connecting') {
-      // Bug fix: do NOT show the active section (QR / link) while still connecting
       collabStatusDot.className = 'collab-status-dot connecting';
       if (collabBtnLabel) collabBtnLabel.textContent = 'Connecting...';
       btnCollab.title = 'Connecting to WebRTC room...';
-      if (statusText) statusText.textContent = 'Connecting to room, please wait...';
-      // Keep activeSection hidden until actually connected
+
+      // Visual feedback in modal: show connecting banner with spinner & disable join button
+      if (btnJoin) {
+        btnJoin.disabled = true;
+        btnJoin.textContent = 'Connecting...';
+      }
+      if (connectingSection) connectingSection.style.display = 'flex';
+      if (connectingText) connectingText.textContent = `Connecting to room "${roomName || ''}"...`;
       if (activeSection) activeSection.style.display = 'none';
     } else {
       // Disconnected / Solo
@@ -520,6 +534,12 @@ function initCollaborationEvents() {
       btnCollab.classList.remove('active');
       if (collabBtnLabel) collabBtnLabel.textContent = 'Collaborate';
       btnCollab.title = 'Collaborate in real time with team';
+
+      if (btnJoin) {
+        btnJoin.disabled = false;
+        btnJoin.textContent = 'Join Room';
+      }
+      if (connectingSection) connectingSection.style.display = 'none';
       if (activeSection) activeSection.style.display = 'none';
       if (inputRoom && !inputRoom.value) {
         inputRoom.value = `ub-${Math.random().toString(36).substring(2, 8)}`;
@@ -671,6 +691,15 @@ function initCollaborationEvents() {
       showToast('Invite link copied to clipboard!', 'success');
     }
   });
+
+  // Cancel Connection
+  if (btnCancel) {
+    btnCancel.addEventListener('click', () => {
+      Collaboration.disconnect();
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      showToast('Connection attempt cancelled.', 'info');
+    });
+  }
 
   // Leave Room
   // Bug fix: use replaceState to clear the hash WITHOUT re-triggering hashchange,

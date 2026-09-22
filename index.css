@@ -1266,6 +1266,38 @@ dialog::backdrop {
   color: var(--accent-cyan);
 }
 
+.collab-connecting-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(255, 235, 59, 0.08);
+  border: 1px solid rgba(255, 235, 59, 0.25);
+}
+
+.collab-connecting-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.collab-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 235, 59, 0.25);
+  border-top-color: #ffeb3b;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .collab-share-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
