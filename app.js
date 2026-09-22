@@ -11,6 +11,8 @@ import {
   generateGPX,
   haversineDistance
 } from './gpx-parser.js';
+import { Collaboration } from './collaboration.js';
+import { QRCode } from './qrcode.js';
 
 // Predefined Runner Colors
 const PREDEFINED_COLORS = [
@@ -117,6 +119,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initMobileCollapseEvents();
     initFormEvents();
     initDataEvents();
+    initCollaborationEvents();
     
     // Register Service Worker for offline PWA support
     if ('serviceWorker' in navigator) {
@@ -139,6 +142,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.log('No route stored, attempting to fetch default GPX...');
       await loadDefaultRoute();
     }
+
+    // Auto-connect to WebRTC room if specified in URL hash or search
+    checkAndConnectCollabRoom();
   } catch (err) {
     console.error('Initialization error:', err);
   } finally {
@@ -307,6 +313,12 @@ function initFormEvents() {
     }
     
     await Storage.saveRunners(state.runners);
+    const savedRunner = state.activeEditingRunnerId
+      ? state.runners.find(r => r.id === state.activeEditingRunnerId)
+      : state.runners[state.runners.length - 1];
+    if (savedRunner) {
+      Collaboration.updateRunner(savedRunner);
+    }
     recalculateSchedule();
     drawRouteOnMap();
     closeDialog();
@@ -391,6 +403,7 @@ function initDataEvents() {
     if (newStartTimeStr) {
       state.startTime = new Date(newStartTimeStr);
       await Storage.saveSetting('startTime', newStartTimeStr);
+      Collaboration.updateSetting('startTime', newStartTimeStr);
       recalculateSchedule();
       drawRouteOnMap();
       alert('Start time updated and schedule recalculated successfully!');
@@ -404,6 +417,278 @@ function initDataEvents() {
       window.location.reload();
     }
   });
+}
+
+// HTML escape helper
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Toast notification helper
+function showToast(message, type = 'info', duration = 3000) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = `toast ${type === 'success' ? 'toast-success' : type === 'warning' ? 'toast-warning' : ''}`;
+  toast.innerHTML = `<span>${message}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add('toast-fadeout');
+    setTimeout(() => toast.remove(), 350);
+  }, duration);
+}
+
+// WebRTC Collaboration Controller & Event Handlers
+function initCollaborationEvents() {
+  const btnCollab = document.getElementById('btn-collaborate');
+  const dialogCollab = document.getElementById('dialog-collaboration');
+  const btnCloseDialog = document.getElementById('btn-close-collab-dialog');
+  const inputRoom = document.getElementById('input-collab-room');
+  const btnJoin = document.getElementById('btn-collab-join');
+  const inputNickname = document.getElementById('input-collab-nickname');
+  const btnSetName = document.getElementById('btn-collab-set-name');
+  const activeSection = document.getElementById('collab-active-section');
+  const inputShareUrl = document.getElementById('input-collab-share-url');
+  const btnCopyLink = document.getElementById('btn-collab-copy-link');
+  const copyText = document.getElementById('collab-copy-text');
+  const btnLeave = document.getElementById('btn-collab-leave');
+  const statusText = document.getElementById('collab-status-text');
+  const peerCountText = document.getElementById('collab-peer-count');
+  const peersList = document.getElementById('collab-peers-list');
+  const collabBtnLabel = document.getElementById('collab-btn-label');
+  const collabStatusDot = btnCollab.querySelector('.collab-status-dot');
+
+  // Helper to build room invite URL
+  function getRoomShareURL(roomName) {
+    const url = new URL(window.location.href);
+    url.hash = `room=${roomName}`;
+    return url.toString();
+  }
+
+  // Render QR Code in modal
+  async function renderCollabQRCode(url) {
+    const qrWrapper = document.getElementById('collab-qrcode');
+    if (!qrWrapper) return;
+    try {
+      const svg = await QRCode.toString(url, {
+        type: 'svg',
+        margin: 1,
+        color: {
+          dark: '#0a0f1d',
+          light: '#ffffff'
+        }
+      });
+      qrWrapper.innerHTML = svg;
+    } catch (err) {
+      console.error('Failed to generate QR code:', err);
+    }
+  }
+
+  // Update Status UI
+  function updateStatusUI({ status, roomName, peerCount, peers }) {
+    if (status === 'connected') {
+      collabStatusDot.className = 'collab-status-dot active';
+      btnCollab.classList.add('active');
+      const countLabel = peerCount > 1 ? `${peerCount} Online` : 'Connected';
+      if (collabBtnLabel) collabBtnLabel.textContent = countLabel;
+      btnCollab.title = `Room: ${roomName} (${peerCount} teammate${peerCount > 1 ? 's' : ''} in room)`;
+
+      if (activeSection) activeSection.style.display = 'block';
+      if (statusText) statusText.textContent = `Connected to room "${roomName}"`;
+      if (peerCountText) peerCountText.textContent = peerCount;
+      if (inputRoom) inputRoom.value = roomName;
+
+      const shareUrl = getRoomShareURL(roomName);
+      if (inputShareUrl) inputShareUrl.value = shareUrl;
+      renderCollabQRCode(shareUrl);
+    } else if (status === 'connecting') {
+      collabStatusDot.className = 'collab-status-dot connecting';
+      if (collabBtnLabel) collabBtnLabel.textContent = 'Connecting...';
+      btnCollab.title = 'Connecting to WebRTC room...';
+      if (statusText) statusText.textContent = 'Connecting to WebRTC room...';
+      if (activeSection) activeSection.style.display = 'block';
+    } else {
+      // Disconnected / Solo
+      collabStatusDot.className = 'collab-status-dot';
+      btnCollab.classList.remove('active');
+      if (collabBtnLabel) collabBtnLabel.textContent = 'Collaborate';
+      btnCollab.title = 'Collaborate in real time with team';
+      if (activeSection) activeSection.style.display = 'none';
+      if (inputRoom && !inputRoom.value) {
+        inputRoom.value = `ub-${Math.random().toString(36).substring(2, 8)}`;
+      }
+    }
+    updatePeersUI({ peerCount, peers });
+  }
+
+  // Update Peers list UI
+  function updatePeersUI({ peerCount, peers }) {
+    if (peerCountText) peerCountText.textContent = peers.length;
+    if (!peersList) return;
+
+    if (peers.length === 0) {
+      peersList.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem;">Waiting for teammates to join...</span>';
+      return;
+    }
+
+    peersList.innerHTML = peers.map(peer => `
+      <div class="collab-peer-badge" title="Client ID: ${peer.clientID}">
+        <span class="collab-peer-dot" style="background: ${peer.color}"></span>
+        <span>${escapeHtml(peer.name)}</span>
+        ${peer.isSelf ? '<span class="collab-peer-self">You</span>' : ''}
+      </div>
+    `).join('');
+  }
+
+  // Handle incoming remote updates from peers
+  async function handleRemoteUpdate(payload) {
+    let hasChanges = false;
+
+    // 1. Sync runners
+    if (Array.isArray(payload.runners) && payload.runners.length > 0) {
+      state.runners = payload.runners;
+      await Storage.saveRunners(state.runners);
+      renderRunnersList();
+      hasChanges = true;
+    }
+
+    // 2. Sync assignments
+    if (payload.assignments && typeof payload.assignments === 'object') {
+      state.assignments = payload.assignments;
+      await Storage.saveAssignments(state.assignments);
+      updateSegmentsUI();
+      hasChanges = true;
+    }
+
+    // 3. Sync start time
+    if (payload.startTime) {
+      state.startTime = new Date(payload.startTime);
+      await Storage.saveSetting('startTime', payload.startTime);
+      if (inputStartTime) {
+        inputStartTime.value = payload.startTime.slice(0, 16);
+      }
+      hasChanges = true;
+    }
+
+    // 4. Sync active transitions
+    if (Array.isArray(payload.activeTransitions) && payload.activeTransitions.length > 0) {
+      const activeIds = payload.activeTransitions;
+      await Storage.saveSetting('activeTransitions', activeIds);
+      if (state.waypoints && state.waypoints.length > 0) {
+        state.activeTransitions = state.waypoints.filter(w => activeIds.includes(w.id));
+        
+        // Ensure virtual start and end are present
+        const startWpt = state.waypoints.find(w => w.trackIndex === 0);
+        if (startWpt && !state.activeTransitions.some(w => w.trackIndex === 0)) {
+          state.activeTransitions.unshift(startWpt);
+        }
+        const lastIndex = state.trackPoints.length - 1;
+        const endWpt = state.waypoints.find(w => w.trackIndex === lastIndex);
+        if (endWpt && !state.activeTransitions.some(w => w.trackIndex === lastIndex)) {
+          state.activeTransitions.push(endWpt);
+        }
+        state.activeTransitions.sort((a, b) => a.trackIndex - b.trackIndex);
+        state.segments = generateSegments(state.trackPoints, state.activeTransitions);
+        renderWaypointFilters();
+      }
+      hasChanges = true;
+    }
+
+    if (hasChanges) {
+      recalculateSchedule();
+      drawRouteOnMap();
+      showToast('Team schedule updated by teammate', 'info', 2500);
+    }
+  }
+
+  // Subscribe to Collaboration events
+  Collaboration.on('status', updateStatusUI);
+  Collaboration.on('peers', updatePeersUI);
+  Collaboration.on('remoteUpdate', handleRemoteUpdate);
+
+  // Button clicks
+  btnCollab.addEventListener('click', () => {
+    if (inputNickname) inputNickname.value = Collaboration.peerInfo.name;
+    if (!Collaboration.roomName && inputRoom && !inputRoom.value) {
+      inputRoom.value = `ub-${Math.random().toString(36).substring(2, 8)}`;
+    }
+    if (Collaboration.roomName) {
+      const shareUrl = getRoomShareURL(Collaboration.roomName);
+      if (inputShareUrl) inputShareUrl.value = shareUrl;
+      renderCollabQRCode(shareUrl);
+    }
+    dialogCollab.showModal();
+  });
+
+  if (btnCloseDialog) {
+    btnCloseDialog.addEventListener('click', () => dialogCollab.close());
+  }
+
+  // Join / Connect button
+  btnJoin.addEventListener('click', () => {
+    const room = inputRoom.value.trim();
+    if (!room) {
+      alert('Please enter a room code or plan ID.');
+      return;
+    }
+    window.location.hash = `room=${encodeURIComponent(room)}`;
+    Collaboration.connect(room, state);
+    showToast(`Connected to room: ${room}`, 'success');
+  });
+
+  // Set Display Name
+  btnSetName.addEventListener('click', () => {
+    const newName = inputNickname.value.trim();
+    if (newName) {
+      Collaboration.setNickname(newName);
+      showToast(`Display name updated to "${newName}"`, 'success');
+    }
+  });
+
+  // Copy Invite Link
+  btnCopyLink.addEventListener('click', async () => {
+    if (!inputShareUrl.value) return;
+    try {
+      await navigator.clipboard.writeText(inputShareUrl.value);
+      copyText.textContent = 'Copied!';
+      showToast('Invite link copied to clipboard!', 'success');
+      setTimeout(() => {
+        if (copyText) copyText.textContent = 'Copy';
+      }, 2000);
+    } catch (err) {
+      // Fallback
+      inputShareUrl.select();
+      document.execCommand('copy');
+      showToast('Invite link copied to clipboard!', 'success');
+    }
+  });
+
+  // Leave Room
+  btnLeave.addEventListener('click', () => {
+    Collaboration.disconnect();
+    // Remove hash without page reload
+    history.pushState("", document.title, window.location.pathname + window.location.search);
+    showToast('Disconnected from room. You are now in solo mode.', 'warning');
+  });
+
+  window.addEventListener('hashchange', () => {
+    checkAndConnectCollabRoom();
+  });
+}
+
+function checkAndConnectCollabRoom() {
+  const hashMatch = window.location.hash.match(/#room=([a-zA-Z0-9_-]+)/);
+  const searchMatch = window.location.search.match(/[?&]room=([a-zA-Z0-9_-]+)/);
+  const room = (hashMatch && hashMatch[1]) || (searchMatch && searchMatch[1]);
+  if (room) {
+    console.log(`[Collaboration] Found room in URL: ${room}`);
+    Collaboration.connect(room, state);
+  }
 }
 
 // Fetch and load default route file (NN_Ultrabalaton_2026.gpx)
@@ -897,6 +1182,8 @@ async function deleteRunner(id) {
     
     await Storage.saveRunners(state.runners);
     await Storage.saveAssignments(state.assignments);
+    Collaboration.deleteRunner(id);
+    Collaboration.saveAssignmentsBatch(state.assignments);
     recalculateSchedule();
     drawRouteOnMap();
   }
@@ -969,6 +1256,7 @@ function updateSegmentsUI() {
       }
       
       await Storage.saveAssignments(state.assignments);
+      Collaboration.updateAssignment(segId, val || null);
       recalculateSchedule();
       drawRouteOnMap();
     });
@@ -1127,6 +1415,7 @@ function updateSettingsUI() {
       // Save
       const activeIds = state.activeTransitions.map(w => w.id);
       await Storage.saveSetting('activeTransitions', activeIds);
+      Collaboration.updateSetting('activeTransitions', activeIds);
       
       recalculateSchedule();
       drawRouteOnMap();
@@ -1272,6 +1561,7 @@ function drawRouteOnMap() {
           
           const activeIds = state.activeTransitions.map(w => w.id);
           await Storage.saveSetting('activeTransitions', activeIds);
+          Collaboration.updateSetting('activeTransitions', activeIds);
           
           recalculateSchedule();
           drawRouteOnMap();
@@ -1340,6 +1630,7 @@ function drawRouteOnMap() {
           
           const activeIds = state.activeTransitions.map(w => w.id);
           await Storage.saveSetting('activeTransitions', activeIds);
+          Collaboration.updateSetting('activeTransitions', activeIds);
           
           recalculateSchedule();
           drawRouteOnMap();

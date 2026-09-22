@@ -2,7 +2,7 @@
  * sw.js - Service Worker for offline capabilities (PWA)
  */
 
-const CACHE_NAME = 'ub-planner-v7';
+const CACHE_NAME = 'ub-planner-v8';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -10,6 +10,9 @@ const ASSETS_TO_CACHE = [
   './app.js',
   './storage.js',
   './gpx-parser.js',
+  './collaboration.js',
+  './qrcode.js',
+  './webrtc-vendor.js',
   './manifest.json',
   './NN_Ultrabalaton_2026.gpx',
   './icon-192.png',
@@ -35,6 +38,9 @@ self.addEventListener('install', (event) => {
           './app.js',
           './storage.js',
           './gpx-parser.js',
+          './collaboration.js',
+          './qrcode.js',
+          './webrtc-vendor.js',
           './manifest.json',
           'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
           'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
