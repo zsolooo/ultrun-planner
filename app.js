@@ -507,11 +507,13 @@ function initCollaborationEvents() {
       if (inputShareUrl) inputShareUrl.value = shareUrl;
       renderCollabQRCode(shareUrl);
     } else if (status === 'connecting') {
+      // Bug fix: do NOT show the active section (QR / link) while still connecting
       collabStatusDot.className = 'collab-status-dot connecting';
       if (collabBtnLabel) collabBtnLabel.textContent = 'Connecting...';
       btnCollab.title = 'Connecting to WebRTC room...';
-      if (statusText) statusText.textContent = 'Connecting to WebRTC room...';
-      if (activeSection) activeSection.style.display = 'block';
+      if (statusText) statusText.textContent = 'Connecting to room, please wait...';
+      // Keep activeSection hidden until actually connected
+      if (activeSection) activeSection.style.display = 'none';
     } else {
       // Disconnected / Solo
       collabStatusDot.className = 'collab-status-dot';
@@ -523,7 +525,7 @@ function initCollaborationEvents() {
         inputRoom.value = `ub-${Math.random().toString(36).substring(2, 8)}`;
       }
     }
-    updatePeersUI({ peerCount, peers });
+    updatePeersUI({ peerCount: peerCount || 0, peers: peers || [] });
   }
 
   // Update Peers list UI
@@ -630,15 +632,17 @@ function initCollaborationEvents() {
   }
 
   // Join / Connect button
+  // Bug fix: set hash using replaceState (doesn't fire hashchange) to avoid
+  // the hashchange listener triggering a second connect() call.
   btnJoin.addEventListener('click', () => {
     const room = inputRoom.value.trim();
     if (!room) {
       alert('Please enter a room code or plan ID.');
       return;
     }
-    window.location.hash = `room=${encodeURIComponent(room)}`;
+    // Update the URL hash silently (no hashchange event)
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room=${encodeURIComponent(room)}`);
     Collaboration.connect(room, state);
-    showToast(`Connected to room: ${room}`, 'success');
   });
 
   // Set Display Name
@@ -669,13 +673,16 @@ function initCollaborationEvents() {
   });
 
   // Leave Room
+  // Bug fix: use replaceState to clear the hash WITHOUT re-triggering hashchange,
+  // which would otherwise call checkAndConnectCollabRoom() and reconnect immediately.
   btnLeave.addEventListener('click', () => {
     Collaboration.disconnect();
-    // Remove hash without page reload
-    history.pushState("", document.title, window.location.pathname + window.location.search);
+    history.replaceState(null, '', window.location.pathname + window.location.search);
     showToast('Disconnected from room. You are now in solo mode.', 'warning');
   });
 
+  // hashchange fires when the user navigates via browser back/forward or pastes a link.
+  // The join button and disconnect button use replaceState, so they won't trigger this.
   window.addEventListener('hashchange', () => {
     checkAndConnectCollabRoom();
   });

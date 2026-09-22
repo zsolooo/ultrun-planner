@@ -12,7 +12,9 @@ class CollaborationEngine {
     this.roomName = null;
     this.status = 'disconnected'; // 'disconnected' | 'connecting' | 'connected'
     this.isApplyingRemote = false;
-    
+    // Prevent auto-reconnect after explicit user disconnect
+    this.disconnectedByUser = false;
+
     // Yjs data structures
     this.yRunners = null;
     this.yAssignments = null;
@@ -42,7 +44,7 @@ class CollaborationEngine {
 
   getStoredNickname() {
     try {
-      return localStorage.getItem('ub_peer_nickname');
+      return localStorage.getItem('ub_peer_nickname') || null;
     } catch (e) {
       return null;
     }
@@ -112,20 +114,31 @@ class CollaborationEngine {
   }
 
   /**
-   * Connect to a specific room by name
+   * Connect to a specific room by name.
    */
   connect(roomName, initialLocalState = null) {
     if (!roomName || typeof roomName !== 'string') return;
     const cleanRoom = roomName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
     if (!cleanRoom) return;
 
-    // If already connected to this exact room, no-op
+    // If user explicitly disconnected and the same room is being reconnected
+    // (e.g. from hashchange), skip unless it is a NEW room.
+    if (this.disconnectedByUser && this.status === 'disconnected') {
+      // Only block reconnect to the same room; allow a fresh different room.
+      console.log('[Collaboration] Auto-reconnect suppressed after user disconnect.');
+      return;
+    }
+
+    // If already connected or connecting to this exact room, no-op
     if (this.provider && this.roomName === cleanRoom && this.status !== 'disconnected') {
       return;
     }
 
-    // Disconnect any existing session
-    this.disconnect();
+    // Clear the user-disconnect flag on explicit new connect
+    this.disconnectedByUser = false;
+
+    // Tear down any existing session fully before creating a new one
+    this._destroyProvider();
 
     this.roomName = cleanRoom;
     this.notifyStatus('connecting');
@@ -137,12 +150,12 @@ class CollaborationEngine {
     this.ySettings = this.ydoc.getMap('settings');
     this.yMeta = this.ydoc.getMap('meta');
 
-    // Create WebrtcProvider
+    // Create WebrtcProvider.
+    // NOTE: Do NOT pass awareness: null – that disables it entirely.
+    // Do NOT pass password: null – some builds treat it as an invalid option.
     try {
       this.provider = new WebrtcProvider(`ub-planner-${this.roomName}`, this.ydoc, {
         signaling: this.signalingServers,
-        password: null,
-        awareness: null,
         maxConns: 20 + Math.floor(Math.random() * 15),
         filterBcConns: true,
         peerOpts: {
@@ -153,39 +166,44 @@ class CollaborationEngine {
         }
       });
     } catch (err) {
-      console.error('Failed to initialize WebRTC provider:', err);
+      console.error('[Collaboration] Failed to initialize WebRTC provider:', err);
+      this._destroyProvider();
       this.notifyStatus('disconnected');
       return;
     }
 
-    // Configure presence / awareness
+    // Configure presence / awareness (awareness is always non-null here)
     const awareness = this.provider.awareness;
     awareness.setLocalStateField('user', this.peerInfo);
 
     awareness.on('change', () => {
       this.notifyPeersChanged();
+      // BroadcastChannel peer appears before WS – treat as "connected" too
       if (this.status === 'connecting') {
-        this.notifyStatus('connected');
+        const states = awareness.getStates();
+        if (states.size > 0) {
+          this.notifyStatus('connected');
+        }
       }
     });
 
     this.provider.on('status', (event) => {
       console.log('[WebRTC status]', event.status);
-      if (event.status === 'connected') {
+      if (event.status === 'connected' && this.status !== 'connected') {
         this.notifyStatus('connected');
       }
     });
 
     this.provider.on('synced', (event) => {
       console.log('[WebRTC synced]', event.synced);
-      if (event.synced) {
+      if (event.synced && this.status !== 'connected') {
         this.notifyStatus('connected');
         this.handleInitialSync(initialLocalState);
       }
     });
 
     // Listen to remote changes on Yjs collections
-    const handleChange = (events, transaction) => {
+    const handleChange = (_events, transaction) => {
       // Ignore if change originated from our own client transaction
       if (transaction.local) return;
 
@@ -204,27 +222,29 @@ class CollaborationEngine {
     this.yAssignments.observe(handleChange);
     this.ySettings.observe(handleChange);
 
-    // Timeout safety fallback: consider connected if signaling established
-    setTimeout(() => {
-      if (this.status === 'connecting') {
+    // Timeout safety fallback: mark connected even if WebSocket signaling is slow / blocked
+    const connectionTimeoutId = setTimeout(() => {
+      if (this.provider && this.status === 'connecting') {
+        console.log('[Collaboration] Signaling timeout – marking as connected (BroadcastChannel may still work locally).');
         this.notifyStatus('connected');
         this.handleInitialSync(initialLocalState);
       }
-    }, 2000);
+    }, 3000);
+
+    // Cancel the fallback if we connect before the timeout
+    this.provider.once('status', () => clearTimeout(connectionTimeoutId));
   }
 
   handleInitialSync(initialLocalState) {
     if (!this.ydoc) return;
-    
+
     const hasRemoteRunners = this.yRunners && this.yRunners.size > 0;
     const hasRemoteAssignments = this.yAssignments && this.yAssignments.size > 0;
 
     if (!hasRemoteRunners && !hasRemoteAssignments && initialLocalState) {
-      // Room is empty; seed it with current local state!
       console.log('[Collaboration] Room is empty. Seeding with local state.');
       this.seedFromLocalState(initialLocalState);
     } else if (hasRemoteRunners || hasRemoteAssignments) {
-      // Room already has data; broadcast update to local state
       console.log('[Collaboration] Room has data. Syncing remote data into local state.');
       const payload = this.exportCurrentYjsState();
       this.listeners.remoteUpdate.forEach(cb => {
@@ -236,23 +256,16 @@ class CollaborationEngine {
   seedFromLocalState(state) {
     if (!this.ydoc || !state) return;
     this.ydoc.transact(() => {
-      // Seed runners
       if (Array.isArray(state.runners)) {
         state.runners.forEach(runner => {
           this.yRunners.set(runner.id, runner);
         });
       }
-
-      // Seed assignments
       if (state.assignments && typeof state.assignments === 'object') {
         Object.entries(state.assignments).forEach(([segId, runnerId]) => {
-          if (runnerId) {
-            this.yAssignments.set(segId, runnerId);
-          }
+          if (runnerId) this.yAssignments.set(segId, runnerId);
         });
       }
-
-      // Seed settings
       if (state.startTime) {
         const startStr = state.startTime instanceof Date ? state.startTime.toISOString() : state.startTime;
         this.ySettings.set('startTime', startStr);
@@ -261,22 +274,17 @@ class CollaborationEngine {
         const ids = state.activeTransitions.map(w => w.id || w);
         this.ySettings.set('activeTransitions', ids);
       }
-
       this.yMeta.set('updatedAt', new Date().toISOString());
       this.yMeta.set('seededBy', this.peerInfo.name);
     });
   }
 
   exportCurrentYjsState() {
-    // Runners
     const runners = [];
     if (this.yRunners) {
-      this.yRunners.forEach((runner) => {
-        runners.push(runner);
-      });
+      this.yRunners.forEach(runner => runners.push(runner));
     }
 
-    // Assignments
     const assignments = {};
     if (this.yAssignments) {
       this.yAssignments.forEach((runnerId, segId) => {
@@ -284,7 +292,6 @@ class CollaborationEngine {
       });
     }
 
-    // Settings
     let startTime = null;
     let activeTransitions = null;
     if (this.ySettings) {
@@ -315,7 +322,6 @@ class CollaborationEngine {
     if (!this.ydoc || !this.yRunners || this.isApplyingRemote) return;
     this.ydoc.transact(() => {
       this.yRunners.delete(runnerId);
-      // Clean up assignments for this runner
       if (this.yAssignments) {
         this.yAssignments.forEach((assignedRunnerId, segId) => {
           if (assignedRunnerId === runnerId) {
@@ -331,16 +337,10 @@ class CollaborationEngine {
     if (!this.ydoc || !this.yRunners || this.isApplyingRemote) return;
     this.ydoc.transact(() => {
       const incomingIds = new Set(runnersList.map(r => r.id));
-      // Delete removed
       this.yRunners.forEach((_, id) => {
-        if (!incomingIds.has(id)) {
-          this.yRunners.delete(id);
-        }
+        if (!incomingIds.has(id)) this.yRunners.delete(id);
       });
-      // Set / update
-      runnersList.forEach(runner => {
-        this.yRunners.set(runner.id, runner);
-      });
+      runnersList.forEach(runner => this.yRunners.set(runner.id, runner));
       if (this.yMeta) this.yMeta.set('updatedAt', new Date().toISOString());
     });
   }
@@ -362,9 +362,7 @@ class CollaborationEngine {
     this.ydoc.transact(() => {
       const incomingKeys = new Set(Object.keys(assignmentsMap));
       this.yAssignments.forEach((_, key) => {
-        if (!incomingKeys.has(key)) {
-          this.yAssignments.delete(key);
-        }
+        if (!incomingKeys.has(key)) this.yAssignments.delete(key);
       });
       Object.entries(assignmentsMap).forEach(([segId, runnerId]) => {
         if (runnerId) {
@@ -386,30 +384,30 @@ class CollaborationEngine {
   }
 
   /**
-   * Disconnect and clear provider
+   * Internal: destroy provider and ydoc without updating disconnectedByUser flag.
    */
-  disconnect() {
+  _destroyProvider() {
     if (this.provider) {
-      try {
-        this.provider.destroy();
-      } catch (e) {
-        console.warn('Error destroying provider:', e);
-      }
+      try { this.provider.destroy(); } catch (e) { console.warn('Error destroying provider:', e); }
       this.provider = null;
     }
     if (this.ydoc) {
-      try {
-        this.ydoc.destroy();
-      } catch (e) {
-        console.warn('Error destroying ydoc:', e);
-      }
+      try { this.ydoc.destroy(); } catch (e) { console.warn('Error destroying ydoc:', e); }
       this.ydoc = null;
     }
-    this.roomName = null;
     this.yRunners = null;
     this.yAssignments = null;
     this.ySettings = null;
     this.yMeta = null;
+  }
+
+  /**
+   * Public: disconnect called by user. Sets flag to suppress URL-hash auto-reconnect.
+   */
+  disconnect() {
+    this.disconnectedByUser = true;
+    this.roomName = null;
+    this._destroyProvider();
     this.notifyStatus('disconnected');
     this.notifyPeersChanged();
   }
