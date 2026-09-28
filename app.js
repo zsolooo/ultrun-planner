@@ -492,6 +492,7 @@ function initCollaborationEvents() {
   const connectingSection = document.getElementById('collab-connecting-section');
   const connectingText = document.getElementById('collab-connecting-text');
   const btnCancel = document.getElementById('btn-collab-cancel');
+  const btnDisconnectInline = document.getElementById('btn-collab-disconnect-inline');
 
   // Update Status UI
   function updateStatusUI({ status, roomName, peerCount, peers }) {
@@ -505,12 +506,13 @@ function initCollaborationEvents() {
       if (connectingSection) connectingSection.style.display = 'none';
       if (btnJoin) {
         btnJoin.disabled = false;
-        btnJoin.textContent = 'Joined';
+        btnJoin.style.display = 'none';
       }
+      if (btnDisconnectInline) btnDisconnectInline.style.display = '';
       if (activeSection) activeSection.style.display = 'block';
       if (statusText) statusText.textContent = `Connected to room "${roomName}"`;
       if (peerCountText) peerCountText.textContent = peerCount;
-      if (inputRoom) inputRoom.value = roomName;
+      if (inputRoom) { inputRoom.value = roomName; inputRoom.disabled = true; }
 
       const shareUrl = getRoomShareURL(roomName);
       if (inputShareUrl) inputShareUrl.value = shareUrl;
@@ -523,11 +525,14 @@ function initCollaborationEvents() {
       // Visual feedback in modal: show connecting banner with spinner & disable join button
       if (btnJoin) {
         btnJoin.disabled = true;
+        btnJoin.style.display = '';
         btnJoin.textContent = 'Connecting...';
       }
+      if (btnDisconnectInline) btnDisconnectInline.style.display = 'none';
       if (connectingSection) connectingSection.style.display = 'flex';
       if (connectingText) connectingText.textContent = `Connecting to room "${roomName || ''}"...`;
       if (activeSection) activeSection.style.display = 'none';
+      if (inputRoom) inputRoom.disabled = true;
     } else {
       // Disconnected / Solo
       collabStatusDot.className = 'collab-status-dot';
@@ -537,12 +542,17 @@ function initCollaborationEvents() {
 
       if (btnJoin) {
         btnJoin.disabled = false;
+        btnJoin.style.display = '';
         btnJoin.textContent = 'Join Room';
       }
+      if (btnDisconnectInline) btnDisconnectInline.style.display = 'none';
       if (connectingSection) connectingSection.style.display = 'none';
       if (activeSection) activeSection.style.display = 'none';
-      if (inputRoom && !inputRoom.value) {
-        inputRoom.value = `ub-${Math.random().toString(36).substring(2, 8)}`;
+      if (inputRoom) {
+        inputRoom.disabled = false;
+        if (!inputRoom.value) {
+          inputRoom.value = `ub-${Math.random().toString(36).substring(2, 8)}`;
+        }
       }
     }
     updatePeersUI({ peerCount: peerCount || 0, peers: peers || [] });
@@ -660,6 +670,9 @@ function initCollaborationEvents() {
       alert('Please enter a room code or plan ID.');
       return;
     }
+    // Always allow explicit user connect — reset the auto-reconnect suppression flag.
+    // The flag only blocks URL-hash-triggered auto-reconnect, not deliberate clicks.
+    Collaboration.disconnectedByUser = false;
     // Update the URL hash silently (no hashchange event)
     history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room=${encodeURIComponent(room)}`);
     Collaboration.connect(room, state);
@@ -701,7 +714,16 @@ function initCollaborationEvents() {
     });
   }
 
-  // Leave Room
+  // Inline Disconnect button (next to Join Room input)
+  if (btnDisconnectInline) {
+    btnDisconnectInline.addEventListener('click', () => {
+      Collaboration.disconnect();
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      showToast('Disconnected from room. You are now in solo mode.', 'warning');
+    });
+  }
+
+  // Leave Room (button inside active section — kept for backwards compatibility)
   // Bug fix: use replaceState to clear the hash WITHOUT re-triggering hashchange,
   // which would otherwise call checkAndConnectCollabRoom() and reconnect immediately.
   btnLeave.addEventListener('click', () => {
@@ -745,10 +767,14 @@ function initCollaborationEvents() {
       try {
         const awareness = p.awareness;
         const states = awareness ? awareness.getStates() : new Map();
-        lines.push(`Awareness peers: ${states.size}`);
+        const selfId = Collaboration.ydoc ? Collaboration.ydoc.clientID : null;
+        const remoteCount = selfId !== null
+          ? [...states.keys()].filter(id => id !== selfId).length
+          : states.size - 1;
+        lines.push(`Awareness: ${states.size} total (${remoteCount} remote)`);
       } catch (e) { lines.push('Awareness: error'); }
       try {
-        // y-webrtc exposes connected WebRTC peers via room.webrtcConns
+        // y-webrtc exposes connected WebRTC peers via provider.room
         const room = p.room;
         if (room) {
           lines.push(`WebRTC conns: ${room.webrtcConns ? room.webrtcConns.size : 0}`);
@@ -758,8 +784,18 @@ function initCollaborationEvents() {
         }
       } catch (e) { lines.push('Room stats: unavailable'); }
       try {
+        // Show each signaling WebSocket connection state
+        if (p.signalingConns && p.signalingConns.length > 0) {
+          p.signalingConns.forEach((conn, i) => {
+            const wsState = conn.wsconnected ? '✓ connected' : '✗ disconnected';
+            lines.push(`Signaling[${i}]: ${conn.url} — ${wsState}`);
+          });
+        } else {
+          lines.push(`Signaling: ${(Collaboration.signalingServers || []).join(', ')} (no active conns)`);
+        }
+      } catch (e) {
         lines.push(`Signaling servers: ${(Collaboration.signalingServers || []).join(', ')}`);
-      } catch (e) {}
+      }
     } else {
       lines.push('Provider: not connected');
     }

@@ -30,7 +30,8 @@ class CollaborationEngine {
 
     // Live public signaling server endpoints for WebRTC handshake
     this.signalingServers = [
-      'wss://y-webrtc-eu.fly.dev'
+      'wss://y-webrtc-eu.fly.dev',
+      'wss://y-webrtc-us.fly.dev'
     ];
 
     // Local peer identifier info
@@ -176,10 +177,12 @@ class CollaborationEngine {
 
     awareness.on('change', () => {
       this.notifyPeersChanged();
-      // BroadcastChannel peer appears before WS – treat as "connected" too
+      // Only mark connected when we can see at least one REMOTE peer.
+      // states always includes the local client, so size > 1 means another peer is present.
+      // Solo users (first person in room) reach 'connected' via the 3s fallback timeout instead.
       if (this.status === 'connecting') {
         const states = awareness.getStates();
-        if (states.size > 0) {
+        if (states.size > 1) {
           this.notifyStatus('connected');
         }
       }
