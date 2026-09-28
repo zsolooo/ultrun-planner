@@ -571,8 +571,8 @@ function initCollaborationEvents() {
   async function handleRemoteUpdate(payload) {
     let hasChanges = false;
 
-    // 1. Sync runners
-    if (Array.isArray(payload.runners) && payload.runners.length > 0) {
+    // 1. Sync runners (allow empty array to propagate "all runners deleted")
+    if (Array.isArray(payload.runners)) {
       state.runners = payload.runners;
       await Storage.saveRunners(state.runners);
       renderRunnersList();
@@ -709,6 +709,103 @@ function initCollaborationEvents() {
     history.replaceState(null, '', window.location.pathname + window.location.search);
     showToast('Disconnected from room. You are now in solo mode.', 'warning');
   });
+
+  // --- Debug Panel ---
+  const btnDebugToggleLog = document.getElementById('btn-debug-toggle-log');
+  const debugLogStatus = document.getElementById('debug-log-status');
+  const collabDebugStats = document.getElementById('collab-debug-stats');
+  const btnDebugRefreshStats = document.getElementById('btn-debug-refresh-stats');
+
+  function updateDebugLogButtonState() {
+    try {
+      const current = localStorage.getItem('log');
+      const isEnabled = current && current.includes('y-webrtc');
+      if (btnDebugToggleLog) {
+        btnDebugToggleLog.textContent = isEnabled ? 'Disable Verbose Logging' : 'Enable Verbose Logging';
+        btnDebugToggleLog.style.borderColor = isEnabled ? 'var(--accent-cyan)' : '';
+      }
+      if (debugLogStatus) {
+        debugLogStatus.textContent = isEnabled
+          ? '✓ Verbose logging ON – reload page to see logs in console'
+          : 'Verbose logging is OFF';
+        debugLogStatus.style.color = isEnabled ? 'var(--accent-cyan)' : 'var(--text-muted)';
+      }
+    } catch (e) { /* storage unavailable */ }
+  }
+
+  function collectDebugStats() {
+    const lines = [];
+    lines.push(`Time: ${new Date().toLocaleTimeString()}`);
+    lines.push(`Collab status: ${Collaboration.status}`);
+    lines.push(`Room: ${Collaboration.roomName || '(none)'}`);
+    lines.push(`Yjs runners: ${Collaboration.yRunners ? Collaboration.yRunners.size : 'n/a'}`);
+    lines.push(`Yjs assignments: ${Collaboration.yAssignments ? Collaboration.yAssignments.size : 'n/a'}`);
+    if (Collaboration.provider) {
+      const p = Collaboration.provider;
+      try {
+        const awareness = p.awareness;
+        const states = awareness ? awareness.getStates() : new Map();
+        lines.push(`Awareness peers: ${states.size}`);
+      } catch (e) { lines.push('Awareness: error'); }
+      try {
+        // y-webrtc exposes connected WebRTC peers via room.webrtcConns
+        const room = p.room;
+        if (room) {
+          lines.push(`WebRTC conns: ${room.webrtcConns ? room.webrtcConns.size : 0}`);
+          lines.push(`BroadcastChannel: ${room.bcChannel ? 'open' : 'closed'}`);
+        } else {
+          lines.push('Room: not yet initialised');
+        }
+      } catch (e) { lines.push('Room stats: unavailable'); }
+      try {
+        lines.push(`Signaling servers: ${(Collaboration.signalingServers || []).join(', ')}`);
+      } catch (e) {}
+    } else {
+      lines.push('Provider: not connected');
+    }
+    const logEnabled = (() => { try { return localStorage.getItem('log') || '(off)'; } catch(e) { return '?'; } })();
+    lines.push(`localStorage.log: ${logEnabled}`);
+    return lines.join('\n');
+  }
+
+  if (btnDebugToggleLog) {
+    updateDebugLogButtonState();
+    btnDebugToggleLog.addEventListener('click', () => {
+      try {
+        const current = localStorage.getItem('log');
+        const isEnabled = current && current.includes('y-webrtc');
+        if (isEnabled) {
+          localStorage.removeItem('log');
+          showToast('Verbose WebRTC logging disabled. Reload to apply.', 'info');
+        } else {
+          localStorage.setItem('log', 'y-webrtc');
+          showToast('Verbose WebRTC logging enabled. Reload to apply.', 'success');
+        }
+        updateDebugLogButtonState();
+      } catch (e) {
+        showToast('Could not access localStorage.', 'warning');
+      }
+    });
+  }
+
+  if (btnDebugRefreshStats) {
+    btnDebugRefreshStats.addEventListener('click', () => {
+      if (collabDebugStats) {
+        collabDebugStats.textContent = collectDebugStats();
+      }
+    });
+  }
+
+  // Auto-refresh stats when debug panel is opened
+  const collabDebugDetails = document.getElementById('collab-debug-details');
+  if (collabDebugDetails) {
+    collabDebugDetails.addEventListener('toggle', () => {
+      if (collabDebugDetails.open && collabDebugStats) {
+        collabDebugStats.textContent = collectDebugStats();
+        updateDebugLogButtonState();
+      }
+    });
+  }
 
   // hashchange fires when the user navigates via browser back/forward or pastes a link.
   // The join button and disconnect button use replaceState, so they won't trigger this.

@@ -194,9 +194,26 @@ class CollaborationEngine {
 
     this.provider.on('synced', (event) => {
       console.log('[WebRTC synced]', event.synced);
-      if (event.synced && this.status !== 'connected') {
-        this.notifyStatus('connected');
+      if (event.synced) {
+        // Always run initial sync on synced — regardless of current status.
+        // This is the only reliable moment when remote Yjs data is guaranteed present.
+        if (this.status !== 'connected') {
+          this.notifyStatus('connected');
+        }
         this.handleInitialSync(initialLocalState);
+      }
+    });
+
+    // When a new peer joins late, re-seed the room with local state
+    // so the late joiner receives current data.
+    this.provider.on('peers', ({ added, removed }) => {
+      if (added && added.length > 0 && this.status === 'connected') {
+        console.log(`[Collaboration] ${added.length} new peer(s) joined; re-seeding room.`);
+        // Only re-seed if WE own the data (i.e. local state has runners).
+        const remoteHasData = this.yRunners && this.yRunners.size > 0;
+        if (!remoteHasData && initialLocalState && initialLocalState.runners && initialLocalState.runners.length > 0) {
+          this.seedFromLocalState(initialLocalState);
+        }
       }
     });
 
@@ -220,18 +237,28 @@ class CollaborationEngine {
     this.yAssignments.observe(handleChange);
     this.ySettings.observe(handleChange);
 
-    // Timeout safety fallback: mark connected even if remote peers have not joined yet
+    // Timeout safety fallback: mark as connected and attempt sync even if 'synced'
+    // event never fires (solo mode, no peers, or stale signaling).
     this.connectionTimeoutId = setTimeout(() => {
       if (this.provider && this.status === 'connecting') {
-        console.log('[Collaboration] Room ready – marking as connected.');
+        console.log('[Collaboration] Timeout – no synced event. Marking connected and seeding.');
         this.notifyStatus('connected');
-        this.handleInitialSync(initialLocalState);
+        // Only seed if room appears empty — don't overwrite existing remote data.
+        const hasRemote = (this.yRunners && this.yRunners.size > 0) || (this.yAssignments && this.yAssignments.size > 0);
+        if (!hasRemote) {
+          this.seedFromLocalState(initialLocalState);
+        } else {
+          this.handleInitialSync(initialLocalState);
+        }
       }
-    }, 2000);
+    }, 3000);
 
-    // Cancel fallback timeout if synced or connected earlier
+    // Cancel fallback timeout if synced event fires first
     this.provider.once('synced', () => {
-      if (this.connectionTimeoutId) clearTimeout(this.connectionTimeoutId);
+      if (this.connectionTimeoutId) {
+        clearTimeout(this.connectionTimeoutId);
+        this.connectionTimeoutId = null;
+      }
     });
   }
 
