@@ -2,7 +2,7 @@
  * sw.js - Service Worker for offline capabilities (PWA)
  */
 
-const CACHE_NAME = 'ub-planner-v12';
+const CACHE_NAME = 'ub-planner-v13';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',

@@ -28,17 +28,43 @@ class CollaborationEngine {
       peers: []
     };
 
-    // Live public signaling server endpoints for WebRTC handshake
-    this.signalingServers = [
-      'wss://y-webrtc-eu.fly.dev',
-      'wss://y-webrtc-us.fly.dev'
-    ];
+    // Live signaling server endpoints for WebRTC handshake
+    // Prioritizes dedicated Fly.io instance; allows localStorage override
+    this.signalingServers = this.getSignalingServers();
 
     // Local peer identifier info
     this.peerInfo = {
       name: this.getStoredNickname() || `Runner #${Math.floor(1000 + Math.random() * 9000)}`,
       color: this.getRandomColor()
     };
+  }
+
+  getSignalingServers() {
+    try {
+      const stored = localStorage.getItem('ub_signaling_servers');
+      if (stored && stored.trim()) {
+        const list = stored.split(',').map(s => s.trim()).filter(Boolean);
+        if (list.length > 0) return list;
+      }
+    } catch (e) {}
+    return [
+      'wss://ultrun-signaling.fly.dev',
+      'wss://y-webrtc-eu.fly.dev'
+    ];
+  }
+
+  setSignalingServers(servers) {
+    if (Array.isArray(servers) && servers.length > 0) {
+      this.signalingServers = servers;
+      try {
+        localStorage.setItem('ub_signaling_servers', servers.join(', '));
+      } catch (e) {}
+    } else {
+      try {
+        localStorage.removeItem('ub_signaling_servers');
+      } catch (e) {}
+      this.signalingServers = this.getSignalingServers();
+    }
   }
 
   getStoredNickname() {
@@ -160,6 +186,8 @@ class CollaborationEngine {
         peerOpts: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
             { urls: 'stun:global.stun.twilio.com:3478' }
           ]
         }

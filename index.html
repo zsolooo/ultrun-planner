@@ -417,6 +417,19 @@
             Open panel to view live stats.
           </div>
           <button type="button" id="btn-debug-refresh-stats" class="btn btn-small" style="font-size: 0.75rem; align-self: flex-start;">Refresh Stats</button>
+
+          <!-- Dedicated Signaling Server Configuration -->
+          <div style="margin-top: 6px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
+            <label for="input-debug-signaling" style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Signaling Server Endpoint(s):</label>
+            <div style="display: flex; gap: 6px;">
+              <input type="text" id="input-debug-signaling" style="flex: 1; font-size: 0.72rem; padding: 4px 8px; font-family: monospace;" value="wss://ultrun-signaling.fly.dev" placeholder="wss://...">
+              <button type="button" id="btn-debug-save-signaling" class="btn btn-small" style="font-size: 0.72rem;">Apply</button>
+              <button type="button" id="btn-debug-reset-signaling" class="btn btn-small btn-secondary" style="font-size: 0.72rem;" title="Reset to dedicated default">Default</button>
+            </div>
+            <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 4px;">
+              Dedicated server: <code style="color: var(--accent-cyan);">wss://ultrun-signaling.fly.dev</code>
+            </div>
+          </div>
         </div>
       </details>
     </div>

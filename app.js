@@ -832,13 +832,51 @@ function initCollaborationEvents() {
     });
   }
 
-  // Auto-refresh stats when debug panel is opened
+  // Auto-refresh stats and populate signaling input when debug panel is opened
   const collabDebugDetails = document.getElementById('collab-debug-details');
+  const inputDebugSignaling = document.getElementById('input-debug-signaling');
+  const btnDebugSaveSignaling = document.getElementById('btn-debug-save-signaling');
+  const btnDebugResetSignaling = document.getElementById('btn-debug-reset-signaling');
+
+  function updateSignalingInputDisplay() {
+    if (inputDebugSignaling) {
+      inputDebugSignaling.value = (Collaboration.signalingServers || []).join(', ');
+    }
+  }
+
+  if (inputDebugSignaling) {
+    updateSignalingInputDisplay();
+  }
+
+  if (btnDebugSaveSignaling) {
+    btnDebugSaveSignaling.addEventListener('click', () => {
+      const val = inputDebugSignaling ? inputDebugSignaling.value.trim() : '';
+      if (!val) {
+        showToast('Please enter at least one signaling WebSocket URL.', 'warning');
+        return;
+      }
+      const list = val.split(',').map(s => s.trim()).filter(Boolean);
+      Collaboration.setSignalingServers(list);
+      showToast(`Signaling server set: ${list[0]}`, 'success');
+      if (collabDebugStats) collabDebugStats.textContent = collectDebugStats();
+    });
+  }
+
+  if (btnDebugResetSignaling) {
+    btnDebugResetSignaling.addEventListener('click', () => {
+      Collaboration.setSignalingServers(null);
+      updateSignalingInputDisplay();
+      showToast('Signaling servers reset to dedicated default.', 'info');
+      if (collabDebugStats) collabDebugStats.textContent = collectDebugStats();
+    });
+  }
+
   if (collabDebugDetails) {
     collabDebugDetails.addEventListener('toggle', () => {
-      if (collabDebugDetails.open && collabDebugStats) {
-        collabDebugStats.textContent = collectDebugStats();
+      if (collabDebugDetails.open) {
+        if (collabDebugStats) collabDebugStats.textContent = collectDebugStats();
         updateDebugLogButtonState();
+        updateSignalingInputDisplay();
       }
     });
   }

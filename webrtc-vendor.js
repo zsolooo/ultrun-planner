@@ -13320,7 +13320,7 @@ var WebrtcProvider = class extends ObservableV2 {
    * @param {ProviderOptions?} opts
    */
   constructor(roomName, doc2, {
-    signaling = ["wss://y-webrtc-eu.fly.dev"],
+    signaling = ["wss://ultrun-signaling.fly.dev", "wss://y-webrtc-eu.fly.dev"],
     password = null,
     awareness = new Awareness(doc2),
     maxConns = 20 + floor(rand() * 15),
