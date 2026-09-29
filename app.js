@@ -581,8 +581,8 @@ function initCollaborationEvents() {
   async function handleRemoteUpdate(payload) {
     let hasChanges = false;
 
-    // 1. Sync runners (allow empty array to propagate "all runners deleted")
-    if (Array.isArray(payload.runners)) {
+    // 1. Sync runners (only replace if remote provides runners or if local is already empty)
+    if (Array.isArray(payload.runners) && (payload.runners.length > 0 || (state.runners && state.runners.length === 0))) {
       state.runners = payload.runners;
       await Storage.saveRunners(state.runners);
       renderRunnersList();

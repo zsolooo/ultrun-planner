@@ -13018,7 +13018,19 @@ var WebrtcConn = class {
     this.closed = false;
     this.connected = false;
     this.synced = false;
-    this.peer = new import_simplepeer_min.default({ initiator, ...room.provider.peerOpts });
+    const peerOpts = room.provider.peerOpts || {};
+    const config = Object.assign(
+      {
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+          { urls: "stun:stun2.l.google.com:19302" },
+          { urls: "stun:global.stun.twilio.com:3478" }
+        ]
+      },
+      peerOpts.config || (peerOpts.iceServers ? { iceServers: peerOpts.iceServers } : {})
+    );
+    this.peer = new import_simplepeer_min.default({ initiator, ...peerOpts, config });
     this.peer.on("signal", (signal) => {
       if (this.glareToken === void 0) {
         this.glareToken = Date.now() + Math.random();
@@ -13027,6 +13039,7 @@ var WebrtcConn = class {
     });
     this.peer.on("connect", () => {
       log("connected to ", BOLD, remotePeerId);
+      console.log("[WebRTC] Peer data channel connected:", remotePeerId);
       this.connected = true;
       const provider = room.provider;
       const doc2 = provider.doc;
@@ -13058,10 +13071,12 @@ var WebrtcConn = class {
       checkIsSynced(room);
       this.peer.destroy();
       log("closed connection to ", BOLD, remotePeerId);
+      console.log("[WebRTC] Peer disconnected:", remotePeerId);
       announceSignalingInfo(room);
     });
     this.peer.on("error", (err) => {
       log("Error in connection to ", BOLD, remotePeerId, ": ", err);
+      console.warn("[WebRTC] Peer error with", remotePeerId, err);
       announceSignalingInfo(room);
     });
     this.peer.on("data", (data) => {
@@ -13181,8 +13196,18 @@ var Room = class {
     writeVarUint(encoderAwarenessState, messageAwareness);
     writeVarUint8Array(encoderAwarenessState, encodeAwarenessUpdate(this.awareness, [this.doc.clientID]));
     broadcastBcMessage(this, toUint8Array(encoderAwarenessState));
+    if (this._announceInterval) clearInterval(this._announceInterval);
+    this._announceInterval = setInterval(() => {
+      if (this.webrtcConns.size < this.provider.maxConns) {
+        announceSignalingInfo(this);
+      }
+    }, 4000);
   }
   disconnect() {
+    if (this._announceInterval) {
+      clearInterval(this._announceInterval);
+      this._announceInterval = null;
+    }
     signalingConns.forEach((conn) => {
       if (conn.connected) {
         conn.send({ type: "unsubscribe", topics: [this.name] });
@@ -13320,7 +13345,7 @@ var WebrtcProvider = class extends ObservableV2 {
    * @param {ProviderOptions?} opts
    */
   constructor(roomName, doc2, {
-    signaling = ["wss://ultrun-signaling.fly.dev", "wss://y-webrtc-eu.fly.dev"],
+    signaling = ["wss://ultrun-signaling.fly.dev"],
     password = null,
     awareness = new Awareness(doc2),
     maxConns = 20 + floor(rand() * 15),

@@ -42,15 +42,16 @@ class CollaborationEngine {
   getSignalingServers() {
     try {
       const stored = localStorage.getItem('ub_signaling_servers');
-      if (stored && stored.trim()) {
+      // If stored value contains obsolete servers or is invalid, purge it
+      if (stored && (stored.includes('y-webrtc') || !stored.trim())) {
+        localStorage.removeItem('ub_signaling_servers');
+      } else if (stored && stored.trim()) {
         const list = stored.split(',').map(s => s.trim()).filter(Boolean);
         if (list.length > 0) return list;
       }
     } catch (e) {}
-    return [
-      'wss://ultrun-signaling.fly.dev',
-      'wss://y-webrtc-eu.fly.dev'
-    ];
+    // Single dedicated signaling address only
+    return ['wss://ultrun-signaling.fly.dev'];
   }
 
   setSignalingServers(servers) {
@@ -184,14 +185,17 @@ class CollaborationEngine {
         maxConns: 20 + Math.floor(Math.random() * 15),
         filterBcConns: true,
         peerOpts: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' }
-          ]
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' },
+              { urls: 'stun:global.stun.twilio.com:3478' }
+            ]
+          }
         }
       });
+      console.log(`[Collaboration] WebRTC Provider initialized for room "${this.roomName}" using signaling:`, this.signalingServers);
     } catch (err) {
       console.error('[Collaboration] Failed to initialize WebRTC provider:', err);
       this._destroyProvider();
@@ -450,7 +454,10 @@ class CollaborationEngine {
       this.connectionTimeoutId = null;
     }
     if (this.provider) {
-      try { this.provider.destroy(); } catch (e) { console.warn('Error destroying provider:', e); }
+      try {
+        this.provider.disconnect();
+        this.provider.destroy();
+      } catch (e) { console.warn('Error destroying provider:', e); }
       this.provider = null;
     }
     // Clean up room registry synchronously
