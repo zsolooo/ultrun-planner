@@ -585,7 +585,7 @@ function initCollaborationEvents() {
     if (Array.isArray(payload.runners) && (payload.runners.length > 0 || (state.runners && state.runners.length === 0))) {
       state.runners = payload.runners;
       await Storage.saveRunners(state.runners);
-      renderRunnersList();
+      updateRunnersUI();
       hasChanges = true;
     }
 
@@ -626,7 +626,7 @@ function initCollaborationEvents() {
         }
         state.activeTransitions.sort((a, b) => a.trackIndex - b.trackIndex);
         state.segments = generateSegments(state.trackPoints, state.activeTransitions);
-        renderWaypointFilters();
+        updateSettingsUI();
       }
       hasChanges = true;
     }
