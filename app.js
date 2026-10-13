@@ -462,6 +462,24 @@ function initCollaborationEvents() {
   const peersList = document.getElementById('collab-peers-list');
   const collabBtnLabel = document.getElementById('collab-btn-label');
   const collabStatusDot = btnCollab.querySelector('.collab-status-dot');
+  const headerPeersContainer = document.getElementById('header-peers');
+  const selectCollabIcon = document.getElementById('select-collab-icon');
+
+  // Initialize icon selector options
+  if (selectCollabIcon) {
+    const icons = Collaboration.constructor.PARTICIPANT_ICONS || ['🏃', '⚡', '🦊', '🦅', '🐺', '🦁', '🐆', '🦌', '🚀', '🐻', '🔥', '🏔️', '🐯', '🎯', '🦉', '🦬'];
+    selectCollabIcon.innerHTML = icons.map(ic => `<option value="${ic}">${ic}</option>`).join('');
+    selectCollabIcon.value = Collaboration.peerInfo.icon || '🏃';
+    selectCollabIcon.addEventListener('change', () => {
+      Collaboration.setIcon(selectCollabIcon.value);
+    });
+  }
+
+  if (headerPeersContainer) {
+    headerPeersContainer.addEventListener('click', () => {
+      btnCollab.click();
+    });
+  }
 
   // Helper to build room invite URL
   function getRoomShareURL(roomName) {
@@ -554,6 +572,10 @@ function initCollaborationEvents() {
           inputRoom.value = `ub-${Math.random().toString(36).substring(2, 8)}`;
         }
       }
+      if (headerPeersContainer) {
+        headerPeersContainer.style.display = 'none';
+        headerPeersContainer.innerHTML = '';
+      }
     }
     updatePeersUI({ peerCount: peerCount || 0, peers: peers || [] });
   }
@@ -561,20 +583,43 @@ function initCollaborationEvents() {
   // Update Peers list UI
   function updatePeersUI({ peerCount, peers }) {
     if (peerCountText) peerCountText.textContent = peers.length;
-    if (!peersList) return;
 
-    if (peers.length === 0) {
-      peersList.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem;">Waiting for teammates to join...</span>';
-      return;
+    // 1. Update Peers in the Collaboration Modal
+    if (peersList) {
+      if (peers.length === 0) {
+        peersList.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem;">Waiting for teammates to join...</span>';
+      } else {
+        peersList.innerHTML = peers.map(peer => `
+          <div class="collab-peer-badge" title="Client ID: ${peer.clientID}">
+            <span class="collab-peer-icon">${peer.icon || '🏃'}</span>
+            <span class="collab-peer-dot" style="background: ${peer.color}"></span>
+            <span>${escapeHtml(peer.name)}</span>
+            ${peer.isSelf ? '<span class="collab-peer-self">You</span>' : ''}
+          </div>
+        `).join('');
+      }
     }
 
-    peersList.innerHTML = peers.map(peer => `
-      <div class="collab-peer-badge" title="Client ID: ${peer.clientID}">
-        <span class="collab-peer-dot" style="background: ${peer.color}"></span>
-        <span>${escapeHtml(peer.name)}</span>
-        ${peer.isSelf ? '<span class="collab-peer-self">You</span>' : ''}
-      </div>
-    `).join('');
+    // 2. Update Connected Peers Avatars in the Top Bar next to Collaboration Icon
+    if (headerPeersContainer) {
+      if (Collaboration.status !== 'connected' || peers.length === 0) {
+        headerPeersContainer.style.display = 'none';
+        headerPeersContainer.innerHTML = '';
+      } else {
+        headerPeersContainer.style.display = 'inline-flex';
+        const maxVisible = 4;
+        const visiblePeers = peers.slice(0, maxVisible);
+        const overflowCount = peers.length - maxVisible;
+
+        headerPeersContainer.innerHTML = visiblePeers.map(peer => `
+          <span class="header-peer-avatar ${peer.isSelf ? 'is-self' : ''}" 
+                style="border-color: ${peer.color};"
+                title="${escapeHtml(peer.name)}${peer.isSelf ? ' (You)' : ''}">
+            ${peer.icon || '🏃'}
+          </span>
+        `).join('') + (overflowCount > 0 ? `<span class="header-peer-overflow">+${overflowCount}</span>` : '');
+      }
+    }
   }
 
   // Handle incoming remote updates from peers
@@ -646,6 +691,7 @@ function initCollaborationEvents() {
   // Button clicks
   btnCollab.addEventListener('click', () => {
     if (inputNickname) inputNickname.value = Collaboration.peerInfo.name;
+    if (selectCollabIcon) selectCollabIcon.value = Collaboration.peerInfo.icon || '🏃';
     if (!Collaboration.roomName && inputRoom && !inputRoom.value) {
       inputRoom.value = `ub-${Math.random().toString(36).substring(2, 8)}`;
     }
@@ -678,12 +724,13 @@ function initCollaborationEvents() {
     Collaboration.connect(room, state);
   });
 
-  // Set Display Name
+  // Set Display Name & Icon
   btnSetName.addEventListener('click', () => {
     const newName = inputNickname.value.trim();
-    if (newName) {
-      Collaboration.setNickname(newName);
-      showToast(`Display name updated to "${newName}"`, 'success');
+    const newIcon = selectCollabIcon ? selectCollabIcon.value : undefined;
+    if (newName || newIcon) {
+      Collaboration.setProfile({ name: newName || undefined, icon: newIcon });
+      showToast(`Profile updated to "${newIcon ? newIcon + ' ' : ''}${newName || Collaboration.peerInfo.name}"`, 'success');
     }
   });
 

@@ -47,6 +47,7 @@
           </svg>
           <span id="collab-btn-label">Collaborate</span>
         </button>
+        <div id="header-peers" class="header-peers-container" title="Connected teammates" style="display: none;"></div>
         <button id="btn-load-default" class="btn" title="Load default route GPX file">
           <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
             <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
@@ -342,12 +343,13 @@
         <button type="button" id="btn-collab-cancel" class="btn btn-small btn-danger-outline">Cancel</button>
       </div>
 
-      <!-- User Nickname -->
+      <!-- User Nickname & Icon -->
       <div class="form-group">
-        <label for="input-collab-nickname">Your Display Name</label>
-        <div style="display: flex; gap: 8px;">
+        <label for="input-collab-nickname">Your Display Name &amp; Icon</label>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="select-collab-icon" class="btn" style="padding: 6px 10px; font-size: 1.15rem; width: auto; cursor: pointer; text-align: center;" title="Choose your participant icon"></select>
           <input type="text" id="input-collab-nickname" placeholder="e.g. Alice" style="flex: 1;">
-          <button type="button" id="btn-collab-set-name" class="btn">Update Name</button>
+          <button type="button" id="btn-collab-set-name" class="btn">Update</button>
         </div>
       </div>
 
@@ -422,12 +424,12 @@
           <div style="margin-top: 6px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
             <label for="input-debug-signaling" style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Signaling Server Endpoint(s):</label>
             <div style="display: flex; gap: 6px;">
-              <input type="text" id="input-debug-signaling" style="flex: 1; font-size: 0.72rem; padding: 4px 8px; font-family: monospace;" value="wss://ultrun-signaling.fly.dev" placeholder="wss://...">
+              <input type="text" id="input-debug-signaling" style="flex: 1; font-size: 0.72rem; padding: 4px 8px; font-family: monospace;" value="wss://ultrun-signaling.onrender.com" placeholder="wss://...">
               <button type="button" id="btn-debug-save-signaling" class="btn btn-small" style="font-size: 0.72rem;">Apply</button>
               <button type="button" id="btn-debug-reset-signaling" class="btn btn-small btn-secondary" style="font-size: 0.72rem;" title="Reset to dedicated default">Default</button>
             </div>
             <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 4px;">
-              Dedicated server: <code style="color: var(--accent-cyan);">wss://ultrun-signaling.fly.dev</code>
+              Dedicated server: <code style="color: var(--accent-cyan);">wss://ultrun-signaling.onrender.com</code>
             </div>
           </div>
         </div>

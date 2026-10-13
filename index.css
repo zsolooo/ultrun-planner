@@ -1397,6 +1397,12 @@ dialog::backdrop {
   color: #fff;
 }
 
+.collab-peer-icon {
+  font-size: 1rem;
+  line-height: 1;
+  display: inline-block;
+}
+
 .collab-peer-dot {
   width: 8px;
   height: 8px;
@@ -1411,6 +1417,71 @@ dialog::backdrop {
   padding: 1px 5px;
   border-radius: 4px;
   margin-left: 2px;
+}
+
+/* Header Connected Peers Avatar Bar */
+.header-peers-container {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.2s ease;
+  user-select: none;
+  min-height: 32px;
+}
+
+.header-peers-container:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(0, 240, 255, 0.4);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+}
+
+.header-peer-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  background: #0d1322;
+  border: 2px solid;
+  margin-left: -6px;
+  position: relative;
+  transition: transform 0.15s ease, z-index 0.15s ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.header-peer-avatar:first-child {
+  margin-left: 0;
+}
+
+.header-peer-avatar:hover {
+  transform: scale(1.22);
+  z-index: 10;
+}
+
+.header-peer-avatar.is-self::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 6px;
+  height: 6px;
+  background: var(--accent-cyan);
+  border-radius: 50%;
+  border: 1px solid #0a0f1d;
+}
+
+.header-peer-overflow {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-left: 4px;
+  padding: 0 4px;
 }
 
 .btn-danger-outline {

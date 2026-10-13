@@ -29,29 +29,32 @@ class CollaborationEngine {
     };
 
     // Live signaling server endpoints for WebRTC handshake
-    // Prioritizes dedicated Fly.io instance; allows localStorage override
+    // Prioritizes dedicated Render instance; allows localStorage override
     this.signalingServers = this.getSignalingServers();
 
     // Local peer identifier info
     this.peerInfo = {
       name: this.getStoredNickname() || `Runner #${Math.floor(1000 + Math.random() * 9000)}`,
-      color: this.getRandomColor()
+      color: this.getRandomColor(),
+      icon: this.getStoredIcon() || this.getRandomIcon()
     };
   }
+
+  static PARTICIPANT_ICONS = ['🏃', '⚡', '🦊', '🦅', '🐺', '🦁', '🐆', '🦌', '🚀', '🐻', '🔥', '🏔️', '🐯', '🎯', '🦉', '🦬'];
 
   getSignalingServers() {
     try {
       const stored = localStorage.getItem('ub_signaling_servers');
       // If stored value contains obsolete servers or is invalid, purge it
-      if (stored && (stored.includes('y-webrtc') || !stored.trim())) {
+      if (stored && (stored.includes('y-webrtc') || stored.includes('fly.dev') || !stored.trim())) {
         localStorage.removeItem('ub_signaling_servers');
       } else if (stored && stored.trim()) {
         const list = stored.split(',').map(s => s.trim()).filter(Boolean);
         if (list.length > 0) return list;
       }
     } catch (e) {}
-    // Single dedicated signaling address only
-    return ['wss://ultrun-signaling.fly.dev'];
+    // Single dedicated signaling address only (on Render)
+    return ['wss://ultrun-signaling.onrender.com'];
   }
 
   setSignalingServers(servers) {
@@ -76,6 +79,44 @@ class CollaborationEngine {
     }
   }
 
+  getStoredIcon() {
+    try {
+      return localStorage.getItem('ub_peer_icon') || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  getRandomIcon() {
+    const icons = CollaborationEngine.PARTICIPANT_ICONS;
+    return icons[Math.floor(Math.random() * icons.length)];
+  }
+
+  getIconForClientId(clientID) {
+    const icons = CollaborationEngine.PARTICIPANT_ICONS;
+    const idx = Math.abs(Number(clientID) || 0) % icons.length;
+    return icons[idx];
+  }
+
+  assignUniqueIcon() {
+    const allIcons = CollaborationEngine.PARTICIPANT_ICONS;
+    const usedIcons = new Set();
+    if (this.provider && this.provider.awareness) {
+      const states = this.provider.awareness.getStates();
+      states.forEach((state, clientID) => {
+        if (state && state.user && state.user.icon && clientID !== (this.ydoc ? this.ydoc.clientID : null)) {
+          usedIcons.add(state.user.icon);
+        }
+      });
+    }
+    if (this.peerInfo.icon && !usedIcons.has(this.peerInfo.icon)) {
+      return this.peerInfo.icon;
+    }
+    const available = allIcons.filter(icon => !usedIcons.has(icon));
+    const pool = available.length > 0 ? available : allIcons;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
   setNickname(name) {
     if (!name || !name.trim()) return;
     this.peerInfo.name = name.trim();
@@ -83,6 +124,34 @@ class CollaborationEngine {
       localStorage.setItem('ub_peer_nickname', this.peerInfo.name);
     } catch (e) {}
 
+    if (this.provider && this.provider.awareness) {
+      this.provider.awareness.setLocalStateField('user', this.peerInfo);
+    }
+    this.notifyPeersChanged();
+  }
+
+  setIcon(icon) {
+    if (!icon) return;
+    this.peerInfo.icon = icon;
+    try {
+      localStorage.setItem('ub_peer_icon', icon);
+    } catch (e) {}
+
+    if (this.provider && this.provider.awareness) {
+      this.provider.awareness.setLocalStateField('user', this.peerInfo);
+    }
+    this.notifyPeersChanged();
+  }
+
+  setProfile({ name, icon }) {
+    if (name && name.trim()) {
+      this.peerInfo.name = name.trim();
+      try { localStorage.setItem('ub_peer_nickname', this.peerInfo.name); } catch (e) {}
+    }
+    if (icon) {
+      this.peerInfo.icon = icon;
+      try { localStorage.setItem('ub_peer_icon', this.peerInfo.icon); } catch (e) {}
+    }
     if (this.provider && this.provider.awareness) {
       this.provider.awareness.setLocalStateField('user', this.peerInfo);
     }
@@ -130,9 +199,10 @@ class CollaborationEngine {
       if (state && state.user) {
         peers.push({
           clientID,
-          isSelf: clientID === this.ydoc.clientID,
+          isSelf: clientID === (this.ydoc ? this.ydoc.clientID : null),
           name: state.user.name || 'Anonymous',
-          color: state.user.color || '#00f0ff'
+          color: state.user.color || '#00f0ff',
+          icon: state.user.icon || this.getIconForClientId(clientID)
         });
       }
     });
@@ -205,6 +275,9 @@ class CollaborationEngine {
 
     // Configure presence / awareness (awareness is always non-null here)
     const awareness = this.provider.awareness;
+    if (!this.getStoredIcon()) {
+      this.peerInfo.icon = this.assignUniqueIcon();
+    }
     awareness.setLocalStateField('user', this.peerInfo);
 
     awareness.on('change', () => {
