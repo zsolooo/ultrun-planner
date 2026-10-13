@@ -11,6 +11,8 @@ import {
   generateGPX,
   haversineDistance
 } from './gpx-parser.js';
+import { Collaboration } from './collaboration.js';
+import { QRCode } from './qrcode.js';
 
 // Predefined Runner Colors
 const PREDEFINED_COLORS = [
@@ -117,6 +119,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initMobileCollapseEvents();
     initFormEvents();
     initDataEvents();
+    initCollaborationEvents();
     
     // Register Service Worker for offline PWA support
     if ('serviceWorker' in navigator) {
@@ -139,6 +142,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.log('No route stored, attempting to fetch default GPX...');
       await loadDefaultRoute();
     }
+
+    // Auto-connect to WebRTC room if specified in URL hash or search
+    checkAndConnectCollabRoom();
   } catch (err) {
     console.error('Initialization error:', err);
   } finally {
@@ -307,6 +313,12 @@ function initFormEvents() {
     }
     
     await Storage.saveRunners(state.runners);
+    const savedRunner = state.activeEditingRunnerId
+      ? state.runners.find(r => r.id === state.activeEditingRunnerId)
+      : state.runners[state.runners.length - 1];
+    if (savedRunner) {
+      Collaboration.updateRunner(savedRunner);
+    }
     recalculateSchedule();
     drawRouteOnMap();
     closeDialog();
@@ -391,6 +403,7 @@ function initDataEvents() {
     if (newStartTimeStr) {
       state.startTime = new Date(newStartTimeStr);
       await Storage.saveSetting('startTime', newStartTimeStr);
+      Collaboration.updateSetting('startTime', newStartTimeStr);
       recalculateSchedule();
       drawRouteOnMap();
       alert('Start time updated and schedule recalculated successfully!');
@@ -404,6 +417,532 @@ function initDataEvents() {
       window.location.reload();
     }
   });
+}
+
+// HTML escape helper
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Toast notification helper
+function showToast(message, type = 'info', duration = 3000) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = `toast ${type === 'success' ? 'toast-success' : type === 'warning' ? 'toast-warning' : ''}`;
+  toast.innerHTML = `<span>${message}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add('toast-fadeout');
+    setTimeout(() => toast.remove(), 350);
+  }, duration);
+}
+
+// WebRTC Collaboration Controller & Event Handlers
+function initCollaborationEvents() {
+  const btnCollab = document.getElementById('btn-collaborate');
+  const dialogCollab = document.getElementById('dialog-collaboration');
+  const btnCloseDialog = document.getElementById('btn-close-collab-dialog');
+  const inputRoom = document.getElementById('input-collab-room');
+  const btnJoin = document.getElementById('btn-collab-join');
+  const inputNickname = document.getElementById('input-collab-nickname');
+  const btnSetName = document.getElementById('btn-collab-set-name');
+  const activeSection = document.getElementById('collab-active-section');
+  const inputShareUrl = document.getElementById('input-collab-share-url');
+  const btnCopyLink = document.getElementById('btn-collab-copy-link');
+  const copyText = document.getElementById('collab-copy-text');
+  const btnLeave = document.getElementById('btn-collab-leave');
+  const statusText = document.getElementById('collab-status-text');
+  const peerCountText = document.getElementById('collab-peer-count');
+  const peersList = document.getElementById('collab-peers-list');
+  const collabBtnLabel = document.getElementById('collab-btn-label');
+  const collabStatusDot = btnCollab.querySelector('.collab-status-dot');
+  const headerPeersContainer = document.getElementById('header-peers');
+  const selectCollabIcon = document.getElementById('select-collab-icon');
+
+  // Initialize icon selector options
+  if (selectCollabIcon) {
+    const icons = Collaboration.constructor.PARTICIPANT_ICONS || ['🏃', '⚡', '🦊', '🦅', '🐺', '🦁', '🐆', '🦌', '🚀', '🐻', '🔥', '🏔️', '🐯', '🎯', '🦉', '🦬'];
+    selectCollabIcon.innerHTML = icons.map(ic => `<option value="${ic}">${ic}</option>`).join('');
+    selectCollabIcon.value = Collaboration.peerInfo.icon || '🏃';
+    selectCollabIcon.addEventListener('change', () => {
+      Collaboration.setIcon(selectCollabIcon.value);
+    });
+  }
+
+  if (headerPeersContainer) {
+    headerPeersContainer.addEventListener('click', () => {
+      btnCollab.click();
+    });
+  }
+
+  // Helper to build room invite URL
+  function getRoomShareURL(roomName) {
+    const url = new URL(window.location.href);
+    url.hash = `room=${roomName}`;
+    return url.toString();
+  }
+
+  // Render QR Code in modal
+  async function renderCollabQRCode(url) {
+    const qrWrapper = document.getElementById('collab-qrcode');
+    if (!qrWrapper) return;
+    try {
+      const svg = await QRCode.toString(url, {
+        type: 'svg',
+        margin: 1,
+        color: {
+          dark: '#0a0f1d',
+          light: '#ffffff'
+        }
+      });
+      qrWrapper.innerHTML = svg;
+    } catch (err) {
+      console.error('Failed to generate QR code:', err);
+    }
+  }
+
+  const connectingSection = document.getElementById('collab-connecting-section');
+  const connectingText = document.getElementById('collab-connecting-text');
+  const btnCancel = document.getElementById('btn-collab-cancel');
+  const btnDisconnectInline = document.getElementById('btn-collab-disconnect-inline');
+
+  // Update Status UI
+  function updateStatusUI({ status, roomName, peerCount, peers }) {
+    if (status === 'connected') {
+      collabStatusDot.className = 'collab-status-dot active';
+      btnCollab.classList.add('active');
+      const countLabel = peerCount > 1 ? `${peerCount} Online` : 'Connected';
+      if (collabBtnLabel) collabBtnLabel.textContent = countLabel;
+      btnCollab.title = `Room: ${roomName} (${peerCount} teammate${peerCount > 1 ? 's' : ''} in room)`;
+
+      if (connectingSection) connectingSection.style.display = 'none';
+      if (btnJoin) {
+        btnJoin.disabled = false;
+        btnJoin.style.display = 'none';
+      }
+      if (btnDisconnectInline) btnDisconnectInline.style.display = '';
+      if (activeSection) activeSection.style.display = 'block';
+      if (statusText) statusText.textContent = `Connected to room "${roomName}"`;
+      if (peerCountText) peerCountText.textContent = peerCount;
+      if (inputRoom) { inputRoom.value = roomName; inputRoom.disabled = true; }
+
+      const shareUrl = getRoomShareURL(roomName);
+      if (inputShareUrl) inputShareUrl.value = shareUrl;
+      renderCollabQRCode(shareUrl);
+    } else if (status === 'connecting') {
+      collabStatusDot.className = 'collab-status-dot connecting';
+      if (collabBtnLabel) collabBtnLabel.textContent = 'Connecting...';
+      btnCollab.title = 'Connecting to WebRTC room...';
+
+      // Visual feedback in modal: show connecting banner with spinner & disable join button
+      if (btnJoin) {
+        btnJoin.disabled = true;
+        btnJoin.style.display = '';
+        btnJoin.textContent = 'Connecting...';
+      }
+      if (btnDisconnectInline) btnDisconnectInline.style.display = 'none';
+      if (connectingSection) connectingSection.style.display = 'flex';
+      if (connectingText) connectingText.textContent = `Connecting to room "${roomName || ''}"...`;
+      if (activeSection) activeSection.style.display = 'none';
+      if (inputRoom) inputRoom.disabled = true;
+    } else {
+      // Disconnected / Solo
+      collabStatusDot.className = 'collab-status-dot';
+      btnCollab.classList.remove('active');
+      if (collabBtnLabel) collabBtnLabel.textContent = 'Collaborate';
+      btnCollab.title = 'Collaborate in real time with team';
+
+      if (btnJoin) {
+        btnJoin.disabled = false;
+        btnJoin.style.display = '';
+        btnJoin.textContent = 'Join Room';
+      }
+      if (btnDisconnectInline) btnDisconnectInline.style.display = 'none';
+      if (connectingSection) connectingSection.style.display = 'none';
+      if (activeSection) activeSection.style.display = 'none';
+      if (inputRoom) {
+        inputRoom.disabled = false;
+        if (!inputRoom.value) {
+          inputRoom.value = `ub-${Math.random().toString(36).substring(2, 8)}`;
+        }
+      }
+      if (headerPeersContainer) {
+        headerPeersContainer.style.display = 'none';
+        headerPeersContainer.innerHTML = '';
+      }
+    }
+    updatePeersUI({ peerCount: peerCount || 0, peers: peers || [] });
+  }
+
+  // Update Peers list UI
+  function updatePeersUI({ peerCount, peers }) {
+    if (peerCountText) peerCountText.textContent = peers.length;
+
+    // 1. Update Peers in the Collaboration Modal
+    if (peersList) {
+      if (peers.length === 0) {
+        peersList.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem;">Waiting for teammates to join...</span>';
+      } else {
+        peersList.innerHTML = peers.map(peer => `
+          <div class="collab-peer-badge" title="Client ID: ${peer.clientID}">
+            <span class="collab-peer-icon">${peer.icon || '🏃'}</span>
+            <span class="collab-peer-dot" style="background: ${peer.color}"></span>
+            <span>${escapeHtml(peer.name)}</span>
+            ${peer.isSelf ? '<span class="collab-peer-self">You</span>' : ''}
+          </div>
+        `).join('');
+      }
+    }
+
+    // 2. Update Connected Peers Avatars in the Top Bar next to Collaboration Icon
+    if (headerPeersContainer) {
+      if (Collaboration.status !== 'connected' || peers.length === 0) {
+        headerPeersContainer.style.display = 'none';
+        headerPeersContainer.innerHTML = '';
+      } else {
+        headerPeersContainer.style.display = 'inline-flex';
+        const maxVisible = 4;
+        const visiblePeers = peers.slice(0, maxVisible);
+        const overflowCount = peers.length - maxVisible;
+
+        headerPeersContainer.innerHTML = visiblePeers.map(peer => `
+          <span class="header-peer-avatar ${peer.isSelf ? 'is-self' : ''}" 
+                style="border-color: ${peer.color};"
+                title="${escapeHtml(peer.name)}${peer.isSelf ? ' (You)' : ''}">
+            ${peer.icon || '🏃'}
+          </span>
+        `).join('') + (overflowCount > 0 ? `<span class="header-peer-overflow">+${overflowCount}</span>` : '');
+      }
+    }
+  }
+
+  // Handle incoming remote updates from peers
+  async function handleRemoteUpdate(payload) {
+    let hasChanges = false;
+
+    // 1. Sync runners (only replace if remote provides runners or if local is already empty)
+    if (Array.isArray(payload.runners) && (payload.runners.length > 0 || (state.runners && state.runners.length === 0))) {
+      state.runners = payload.runners;
+      await Storage.saveRunners(state.runners);
+      updateRunnersUI();
+      hasChanges = true;
+    }
+
+    // 2. Sync assignments
+    if (payload.assignments && typeof payload.assignments === 'object') {
+      state.assignments = payload.assignments;
+      await Storage.saveAssignments(state.assignments);
+      updateSegmentsUI();
+      hasChanges = true;
+    }
+
+    // 3. Sync start time
+    if (payload.startTime) {
+      state.startTime = new Date(payload.startTime);
+      await Storage.saveSetting('startTime', payload.startTime);
+      if (inputStartTime) {
+        inputStartTime.value = payload.startTime.slice(0, 16);
+      }
+      hasChanges = true;
+    }
+
+    // 4. Sync active transitions
+    if (Array.isArray(payload.activeTransitions) && payload.activeTransitions.length > 0) {
+      const activeIds = payload.activeTransitions;
+      await Storage.saveSetting('activeTransitions', activeIds);
+      if (state.waypoints && state.waypoints.length > 0) {
+        state.activeTransitions = state.waypoints.filter(w => activeIds.includes(w.id));
+        
+        // Ensure virtual start and end are present
+        const startWpt = state.waypoints.find(w => w.trackIndex === 0);
+        if (startWpt && !state.activeTransitions.some(w => w.trackIndex === 0)) {
+          state.activeTransitions.unshift(startWpt);
+        }
+        const lastIndex = state.trackPoints.length - 1;
+        const endWpt = state.waypoints.find(w => w.trackIndex === lastIndex);
+        if (endWpt && !state.activeTransitions.some(w => w.trackIndex === lastIndex)) {
+          state.activeTransitions.push(endWpt);
+        }
+        state.activeTransitions.sort((a, b) => a.trackIndex - b.trackIndex);
+        state.segments = generateSegments(state.trackPoints, state.activeTransitions);
+        updateSettingsUI();
+      }
+      hasChanges = true;
+    }
+
+    if (hasChanges) {
+      recalculateSchedule();
+      drawRouteOnMap();
+      showToast('Team schedule updated by teammate', 'info', 2500);
+    }
+  }
+
+  // Subscribe to Collaboration events
+  Collaboration.on('status', updateStatusUI);
+  Collaboration.on('peers', updatePeersUI);
+  Collaboration.on('remoteUpdate', handleRemoteUpdate);
+
+  // Button clicks
+  btnCollab.addEventListener('click', () => {
+    if (inputNickname) inputNickname.value = Collaboration.peerInfo.name;
+    if (selectCollabIcon) selectCollabIcon.value = Collaboration.peerInfo.icon || '🏃';
+    if (!Collaboration.roomName && inputRoom && !inputRoom.value) {
+      inputRoom.value = `ub-${Math.random().toString(36).substring(2, 8)}`;
+    }
+    if (Collaboration.roomName) {
+      const shareUrl = getRoomShareURL(Collaboration.roomName);
+      if (inputShareUrl) inputShareUrl.value = shareUrl;
+      renderCollabQRCode(shareUrl);
+    }
+    dialogCollab.showModal();
+  });
+
+  if (btnCloseDialog) {
+    btnCloseDialog.addEventListener('click', () => dialogCollab.close());
+  }
+
+  // Join / Connect button
+  // Bug fix: set hash using replaceState (doesn't fire hashchange) to avoid
+  // the hashchange listener triggering a second connect() call.
+  btnJoin.addEventListener('click', () => {
+    const room = inputRoom.value.trim();
+    if (!room) {
+      alert('Please enter a room code or plan ID.');
+      return;
+    }
+    // Always allow explicit user connect — reset the auto-reconnect suppression flag.
+    // The flag only blocks URL-hash-triggered auto-reconnect, not deliberate clicks.
+    Collaboration.disconnectedByUser = false;
+    // Update the URL hash silently (no hashchange event)
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room=${encodeURIComponent(room)}`);
+    Collaboration.connect(room, state);
+  });
+
+  // Set Display Name & Icon
+  btnSetName.addEventListener('click', () => {
+    const newName = inputNickname.value.trim();
+    const newIcon = selectCollabIcon ? selectCollabIcon.value : undefined;
+    if (newName || newIcon) {
+      Collaboration.setProfile({ name: newName || undefined, icon: newIcon });
+      showToast(`Profile updated to "${newIcon ? newIcon + ' ' : ''}${newName || Collaboration.peerInfo.name}"`, 'success');
+    }
+  });
+
+  // Copy Invite Link
+  btnCopyLink.addEventListener('click', async () => {
+    if (!inputShareUrl.value) return;
+    try {
+      await navigator.clipboard.writeText(inputShareUrl.value);
+      copyText.textContent = 'Copied!';
+      showToast('Invite link copied to clipboard!', 'success');
+      setTimeout(() => {
+        if (copyText) copyText.textContent = 'Copy';
+      }, 2000);
+    } catch (err) {
+      // Fallback
+      inputShareUrl.select();
+      document.execCommand('copy');
+      showToast('Invite link copied to clipboard!', 'success');
+    }
+  });
+
+  // Cancel Connection
+  if (btnCancel) {
+    btnCancel.addEventListener('click', () => {
+      Collaboration.disconnect();
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      showToast('Connection attempt cancelled.', 'info');
+    });
+  }
+
+  // Inline Disconnect button (next to Join Room input)
+  if (btnDisconnectInline) {
+    btnDisconnectInline.addEventListener('click', () => {
+      Collaboration.disconnect();
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      showToast('Disconnected from room. You are now in solo mode.', 'warning');
+    });
+  }
+
+  // Leave Room (button inside active section — kept for backwards compatibility)
+  // Bug fix: use replaceState to clear the hash WITHOUT re-triggering hashchange,
+  // which would otherwise call checkAndConnectCollabRoom() and reconnect immediately.
+  btnLeave.addEventListener('click', () => {
+    Collaboration.disconnect();
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    showToast('Disconnected from room. You are now in solo mode.', 'warning');
+  });
+
+  // --- Debug Panel ---
+  const btnDebugToggleLog = document.getElementById('btn-debug-toggle-log');
+  const debugLogStatus = document.getElementById('debug-log-status');
+  const collabDebugStats = document.getElementById('collab-debug-stats');
+  const btnDebugRefreshStats = document.getElementById('btn-debug-refresh-stats');
+
+  function updateDebugLogButtonState() {
+    try {
+      const current = localStorage.getItem('log');
+      const isEnabled = current && current.includes('y-webrtc');
+      if (btnDebugToggleLog) {
+        btnDebugToggleLog.textContent = isEnabled ? 'Disable Verbose Logging' : 'Enable Verbose Logging';
+        btnDebugToggleLog.style.borderColor = isEnabled ? 'var(--accent-cyan)' : '';
+      }
+      if (debugLogStatus) {
+        debugLogStatus.textContent = isEnabled
+          ? '✓ Verbose logging ON – reload page to see logs in console'
+          : 'Verbose logging is OFF';
+        debugLogStatus.style.color = isEnabled ? 'var(--accent-cyan)' : 'var(--text-muted)';
+      }
+    } catch (e) { /* storage unavailable */ }
+  }
+
+  function collectDebugStats() {
+    const lines = [];
+    lines.push(`Time: ${new Date().toLocaleTimeString()}`);
+    lines.push(`Collab status: ${Collaboration.status}`);
+    lines.push(`Room: ${Collaboration.roomName || '(none)'}`);
+    lines.push(`Yjs runners: ${Collaboration.yRunners ? Collaboration.yRunners.size : 'n/a'}`);
+    lines.push(`Yjs assignments: ${Collaboration.yAssignments ? Collaboration.yAssignments.size : 'n/a'}`);
+    if (Collaboration.provider) {
+      const p = Collaboration.provider;
+      try {
+        const awareness = p.awareness;
+        const states = awareness ? awareness.getStates() : new Map();
+        const selfId = Collaboration.ydoc ? Collaboration.ydoc.clientID : null;
+        const remoteCount = selfId !== null
+          ? [...states.keys()].filter(id => id !== selfId).length
+          : states.size - 1;
+        lines.push(`Awareness: ${states.size} total (${remoteCount} remote)`);
+      } catch (e) { lines.push('Awareness: error'); }
+      try {
+        // y-webrtc exposes connected WebRTC peers via provider.room
+        const room = p.room;
+        if (room) {
+          lines.push(`WebRTC conns: ${room.webrtcConns ? room.webrtcConns.size : 0}`);
+          lines.push(`BroadcastChannel: ${room.bcChannel ? 'open' : 'closed'}`);
+        } else {
+          lines.push('Room: not yet initialised');
+        }
+      } catch (e) { lines.push('Room stats: unavailable'); }
+      try {
+        // Show each signaling WebSocket connection state
+        if (p.signalingConns && p.signalingConns.length > 0) {
+          p.signalingConns.forEach((conn, i) => {
+            const wsState = conn.wsconnected ? '✓ connected' : '✗ disconnected';
+            lines.push(`Signaling[${i}]: ${conn.url} — ${wsState}`);
+          });
+        } else {
+          lines.push(`Signaling: ${(Collaboration.signalingServers || []).join(', ')} (no active conns)`);
+        }
+      } catch (e) {
+        lines.push(`Signaling servers: ${(Collaboration.signalingServers || []).join(', ')}`);
+      }
+    } else {
+      lines.push('Provider: not connected');
+    }
+    const logEnabled = (() => { try { return localStorage.getItem('log') || '(off)'; } catch(e) { return '?'; } })();
+    lines.push(`localStorage.log: ${logEnabled}`);
+    return lines.join('\n');
+  }
+
+  if (btnDebugToggleLog) {
+    updateDebugLogButtonState();
+    btnDebugToggleLog.addEventListener('click', () => {
+      try {
+        const current = localStorage.getItem('log');
+        const isEnabled = current && current.includes('y-webrtc');
+        if (isEnabled) {
+          localStorage.removeItem('log');
+          showToast('Verbose WebRTC logging disabled. Reload to apply.', 'info');
+        } else {
+          localStorage.setItem('log', 'y-webrtc');
+          showToast('Verbose WebRTC logging enabled. Reload to apply.', 'success');
+        }
+        updateDebugLogButtonState();
+      } catch (e) {
+        showToast('Could not access localStorage.', 'warning');
+      }
+    });
+  }
+
+  if (btnDebugRefreshStats) {
+    btnDebugRefreshStats.addEventListener('click', () => {
+      if (collabDebugStats) {
+        collabDebugStats.textContent = collectDebugStats();
+      }
+    });
+  }
+
+  // Auto-refresh stats and populate signaling input when debug panel is opened
+  const collabDebugDetails = document.getElementById('collab-debug-details');
+  const inputDebugSignaling = document.getElementById('input-debug-signaling');
+  const btnDebugSaveSignaling = document.getElementById('btn-debug-save-signaling');
+  const btnDebugResetSignaling = document.getElementById('btn-debug-reset-signaling');
+
+  function updateSignalingInputDisplay() {
+    if (inputDebugSignaling) {
+      inputDebugSignaling.value = (Collaboration.signalingServers || []).join(', ');
+    }
+  }
+
+  if (inputDebugSignaling) {
+    updateSignalingInputDisplay();
+  }
+
+  if (btnDebugSaveSignaling) {
+    btnDebugSaveSignaling.addEventListener('click', () => {
+      const val = inputDebugSignaling ? inputDebugSignaling.value.trim() : '';
+      if (!val) {
+        showToast('Please enter at least one signaling WebSocket URL.', 'warning');
+        return;
+      }
+      const list = val.split(',').map(s => s.trim()).filter(Boolean);
+      Collaboration.setSignalingServers(list);
+      showToast(`Signaling server set: ${list[0]}`, 'success');
+      if (collabDebugStats) collabDebugStats.textContent = collectDebugStats();
+    });
+  }
+
+  if (btnDebugResetSignaling) {
+    btnDebugResetSignaling.addEventListener('click', () => {
+      Collaboration.setSignalingServers(null);
+      updateSignalingInputDisplay();
+      showToast('Signaling servers reset to dedicated default.', 'info');
+      if (collabDebugStats) collabDebugStats.textContent = collectDebugStats();
+    });
+  }
+
+  if (collabDebugDetails) {
+    collabDebugDetails.addEventListener('toggle', () => {
+      if (collabDebugDetails.open) {
+        if (collabDebugStats) collabDebugStats.textContent = collectDebugStats();
+        updateDebugLogButtonState();
+        updateSignalingInputDisplay();
+      }
+    });
+  }
+
+  // hashchange fires when the user navigates via browser back/forward or pastes a link.
+  // The join button and disconnect button use replaceState, so they won't trigger this.
+  window.addEventListener('hashchange', () => {
+    checkAndConnectCollabRoom();
+  });
+}
+
+function checkAndConnectCollabRoom() {
+  const hashMatch = window.location.hash.match(/#room=([a-zA-Z0-9_-]+)/);
+  const searchMatch = window.location.search.match(/[?&]room=([a-zA-Z0-9_-]+)/);
+  const room = (hashMatch && hashMatch[1]) || (searchMatch && searchMatch[1]);
+  if (room) {
+    console.log(`[Collaboration] Found room in URL: ${room}`);
+    Collaboration.connect(room, state);
+  }
 }
 
 // Fetch and load default route file (NN_Ultrabalaton_2026.gpx)
@@ -897,6 +1436,8 @@ async function deleteRunner(id) {
     
     await Storage.saveRunners(state.runners);
     await Storage.saveAssignments(state.assignments);
+    Collaboration.deleteRunner(id);
+    Collaboration.saveAssignmentsBatch(state.assignments);
     recalculateSchedule();
     drawRouteOnMap();
   }
@@ -969,6 +1510,7 @@ function updateSegmentsUI() {
       }
       
       await Storage.saveAssignments(state.assignments);
+      Collaboration.updateAssignment(segId, val || null);
       recalculateSchedule();
       drawRouteOnMap();
     });
@@ -1127,6 +1669,7 @@ function updateSettingsUI() {
       // Save
       const activeIds = state.activeTransitions.map(w => w.id);
       await Storage.saveSetting('activeTransitions', activeIds);
+      Collaboration.updateSetting('activeTransitions', activeIds);
       
       recalculateSchedule();
       drawRouteOnMap();
@@ -1272,6 +1815,7 @@ function drawRouteOnMap() {
           
           const activeIds = state.activeTransitions.map(w => w.id);
           await Storage.saveSetting('activeTransitions', activeIds);
+          Collaboration.updateSetting('activeTransitions', activeIds);
           
           recalculateSchedule();
           drawRouteOnMap();
@@ -1340,6 +1884,7 @@ function drawRouteOnMap() {
           
           const activeIds = state.activeTransitions.map(w => w.id);
           await Storage.saveSetting('activeTransitions', activeIds);
+          Collaboration.updateSetting('activeTransitions', activeIds);
           
           recalculateSchedule();
           drawRouteOnMap();

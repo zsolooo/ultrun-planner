@@ -51,6 +51,9 @@ The application solves the logistical challenge of:
 | **`app.js`** | Core application controller. Orchestrates UI event handlers, Leaflet map layers, runner modals, schedule recalculation loop, and state synchronization. |
 | **`gpx-parser.js`** | Pure functional utility module. Handles XML parsing of `<trkpt>` and `<wpt>`, Haversine distance calculations, nearest trackpoint projection, Hungarian transition keyword detection (`csapat váltópont`), segment generation, and personalized GPX generation. |
 | **`storage.js`** | Client-side database manager using IndexedDB (`UltrabalatonPlannerDB`). Manages stores for `route`, `runners`, `settings`, and `assignments`, and handles JSON backup import/export. |
+| **`collaboration.js`** | WebRTC P2P collaborative planning engine using Yjs CRDT. Handles live multi-user synchronization, presence awareness, and room management. |
+| **`qrcode.js`** | Bundled offline QR code generator for instant mobile room invite scanning. |
+| **`webrtc-vendor.js`** | Standalone bundled vendor module providing Yjs CRDT and WebRTC provider for offline-capable PWA execution. |
 | **`sw.js`** | Service Worker for offline asset pre-caching and network-fallback strategy. Cache versioning is managed via `CACHE_NAME = 'ub-planner-vX'`. |
 | **`manifest.json`** | Web App Manifest defining standalone PWA behavior, theme colors (`#0a0f1d`), and icon assets. |
 | **`NN_Ultrabalaton_2026.gpx`** | Default bundled 208.9 km GPX track containing trackpoints and Hungarian checkpoint waypoints. |
@@ -125,7 +128,7 @@ Open `http://localhost:8080`.
 ### Syntax Validation
 Before committing, validate all JS files with Node:
 ```bash
-node -c app.js && node -c gpx-parser.js && node -c storage.js && node -c sw.js
+node -c app.js && node -c gpx-parser.js && node -c storage.js && node -c sw.js && node -c collaboration.js && node -c qrcode.js && node -c webrtc-vendor.js
 ```
 
 ### Service Worker Versioning
