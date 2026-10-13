@@ -1598,13 +1598,17 @@ function exportRunGPX(runnerId, runIdx) {
   const runName = `${runner.name}_Run_${runIdx + 1}_${run.startWpt.name.split(',')[0]}`;
   const gpxString = generateGPX(runName, points, waypoints);
   
-  const dataStr = "data:text/xml;charset=utf-8," + encodeURIComponent(gpxString);
+  // Use Blob with application/octet-stream to prevent Chrome from auto-appending .xml
+  const blob = new Blob([gpxString], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
   const downloadAnchor = document.createElement('a');
-  downloadAnchor.setAttribute("href", dataStr);
-  downloadAnchor.setAttribute("download", `${runName.replace(/\s+/g, '_')}.gpx`);
+  downloadAnchor.setAttribute("href", url);
+  const sanitizedFileName = runName.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
+  downloadAnchor.setAttribute("download", `${sanitizedFileName}.gpx`);
   document.body.appendChild(downloadAnchor);
   downloadAnchor.click();
   downloadAnchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // Update waypoints list in Settings
